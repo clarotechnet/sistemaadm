@@ -1,0 +1,3 @@
+import { Clock3, LogOut, ShieldCheck } from "lucide-react";
+
+export function ApprovalPending({name}:{name:string}){return <main className="approval-page"><section><span><Clock3/></span><h1>Acesso aguardando aprovação</h1><p>Olá, {name}. Seu cadastro foi recebido. Um administrador precisa liberar seu perfil antes que você acesse dados de RH.</p><div><ShieldCheck/><span><strong>Seus dados estão protegidos</strong><small>Nenhum arquivo ou informação de folha está visível enquanto a conta estiver pendente.</small></span></div><a className="button secondary" href="/signout-with-chatgpt?return_to=/"><LogOut/> Sair</a></section></main>}
