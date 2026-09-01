@@ -86,11 +86,33 @@ export async function extractPdfText(file: File): Promise<{ pageCount:number; pa
   return {pageCount:document.numPages,pages};
 }
 
-export type PdfOverlay = { id:string; page:number; type:"text"|"erase"|"rect"; x:number;y:number;width:number;height:number;text?:string;fontSize?:number;color?:string;bold?:boolean };
+export type PdfTextItem = { id:string;text:string;x:number;y:number;width:number;height:number;fontSize:number };
+const clampUnit=(value:number)=>Math.min(1,Math.max(0,value));
+export async function extractPdfTextItems(file: File, pageNumber: number):Promise<PdfTextItem[]> {
+  const pdfjs=await loadPdfJs();
+  const document=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+  const page=await document.getPage(pageNumber+1);
+  const viewport=page.getViewport({scale:1});
+  const content=await page.getTextContent();
+  return content.items.flatMap((item,index)=>{
+    if(!("str" in item)||!item.str.trim())return [];
+    const transform=pdfjs.Util.transform(viewport.transform,item.transform);
+    const fontHeight=Math.hypot(transform[2],transform[3])||item.height||10;
+    const style=content.styles[item.fontName];
+    const ascent=style?.ascent?style.ascent*fontHeight:style?.descent?(1+style.descent)*fontHeight:fontHeight;
+    const x=clampUnit(transform[4]/viewport.width);
+    const y=clampUnit((transform[5]-ascent)/viewport.height);
+    const width=clampUnit(Math.max(item.width*viewport.scale,1)/viewport.width);
+    const height=clampUnit(Math.max(fontHeight,1)/viewport.height);
+    return [{id:`${pageNumber}-${index}`,text:item.str,x,y,width:Math.min(width,1-x),height:Math.min(height,1-y),fontSize:Math.max(6,Math.round(fontHeight))}];
+  });
+}
+
+export type PdfOverlay = { id:string; groupId?:string; page:number; type:"text"|"erase"|"rect"; x:number;y:number;width:number;height:number;text?:string;fontSize?:number;color?:string;bold?:boolean;coverBackground?:boolean };
 function hexToRgb(hex="#1f1f1f"){const clean=hex.replace("#","");return [Number.parseInt(clean.slice(0,2),16)/255,Number.parseInt(clean.slice(2,4),16)/255,Number.parseInt(clean.slice(4,6),16)/255] as const;}
 export async function applyPdfEdits(file: File, overlays: PdfOverlay[]) {
   const pdf=await PDFDocument.load(await file.arrayBuffer(),{ignoreEncryption:true});const regular=await pdf.embedFont(StandardFonts.Helvetica);const bold=await pdf.embedFont(StandardFonts.HelveticaBold);
-  for(const overlay of overlays){const page=pdf.getPage(overlay.page);const{width,height}=page.getSize();const x=overlay.x*width;const y=height-(overlay.y+overlay.height)*height;const w=overlay.width*width;const h=overlay.height*height;if(overlay.type==="erase")page.drawRectangle({x,y,width:w,height:h,color:rgb(1,1,1)});else if(overlay.type==="rect")page.drawRectangle({x,y,width:w,height:h,borderColor:rgb(...hexToRgb(overlay.color)),borderWidth:1.2,opacity:0,borderOpacity:1});else{page.drawRectangle({x,y,width:w,height:h,color:rgb(1,1,1)});page.drawText(overlay.text??"",{x:x+2,y:y+Math.max(2,h-(overlay.fontSize??12)-2),size:overlay.fontSize??12,font:overlay.bold?bold:regular,color:rgb(...hexToRgb(overlay.color))});}}
+  for(const overlay of overlays){const page=pdf.getPage(overlay.page);const{width,height}=page.getSize();const x=overlay.x*width;const y=height-(overlay.y+overlay.height)*height;const w=overlay.width*width;const h=overlay.height*height;if(overlay.type==="erase")page.drawRectangle({x,y,width:w,height:h,color:rgb(1,1,1)});else if(overlay.type==="rect")page.drawRectangle({x,y,width:w,height:h,borderColor:rgb(...hexToRgb(overlay.color)),borderWidth:1.2,opacity:0,borderOpacity:1});else{if(overlay.coverBackground!==false)page.drawRectangle({x,y,width:w,height:h,color:rgb(1,1,1)});page.drawText(overlay.text??"",{x:x+2,y:y+Math.max(2,h-(overlay.fontSize??12)-2),size:overlay.fontSize??12,font:overlay.bold?bold:regular,color:rgb(...hexToRgb(overlay.color))});}}
   return pdf.save();
 }
 

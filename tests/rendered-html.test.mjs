@@ -30,3 +30,18 @@ test("serves the PDF.js worker from the same web origin", async () => {
   assert.doesNotMatch(service, /new URL\(["']pdfjs-dist\/build\/pdf\.worker/);
   await access(new URL("../public/pdf.worker.min.mjs", import.meta.url));
 });
+
+test("PDF editor selects original text precisely and exposes close/remove controls", async () => {
+  const [editor, service, toolsPage] = await Promise.all([
+    readFile(new URL("../app/ui/pages/pdf/PdfEditor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/services/pdf.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui/pages/PdfToolsPage.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(service, /extractPdfTextItems/);
+  assert.match(editor, /pdf-text-hitbox/);
+  assert.match(editor, /tool==="select"\|\|tool==="editText"/);
+  assert.match(editor, /coverBackground:false/);
+  assert.match(editor, /Fechar editor/);
+  assert.match(editor, /Remover PDF/);
+  assert.match(toolsPage, /PdfEditor onClose/);
+});
