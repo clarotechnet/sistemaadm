@@ -45,3 +45,11 @@ test("PDF editor selects original text precisely and exposes close/remove contro
   assert.match(editor, /Remover PDF/);
   assert.match(toolsPage, /PdfEditor onClose/);
 });
+
+test("account menu closes after clicking outside or pressing Escape", async () => {
+  const shell = await readFile(new URL("../app/ui/components/AppShell.tsx", import.meta.url), "utf8");
+  assert.match(shell, /accountRef\.current\?\.contains/);
+  assert.match(shell, /document\.addEventListener\("pointerdown", closeOnOutsideClick\)/);
+  assert.match(shell, /event\.key === "Escape"/);
+  assert.match(shell, /aria-expanded=\{accountOpen\}/);
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell, ChevronDown, FileBarChart, FileStack, Gauge, History, Menu, PanelLeftClose, Settings, Sheet, ShieldCheck, Users, X } from "lucide-react";
 import { useApp } from "../state/AppContext";
 
@@ -17,9 +17,22 @@ export function AppShell({ route, onNavigate, children }: { route: AppRoute; onN
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
   const active = routes.find(item => item.id === route)!;
-  useEffect(() => setMobileOpen(false), [route]);
-  const navigate = (next: AppRoute) => { history.pushState({}, "", next === "dashboard" ? "/" : `/${next}`); onNavigate(next); };
+  useEffect(() => {
+    if (!accountOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (event.target instanceof Node && !accountRef.current?.contains(event.target)) setAccountOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setAccountOpen(false); };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [accountOpen]);
+  const navigate = (next: AppRoute) => { setAccountOpen(false); setMobileOpen(false); history.pushState({}, "", next === "dashboard" ? "/" : `/${next}`); onNavigate(next); };
   return <div className={`control-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
     {mobileOpen && <button className="mobile-overlay" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
     <aside className={`control-sidebar ${mobileOpen ? "mobile-open" : ""}`}>
@@ -31,7 +44,7 @@ export function AppShell({ route, onNavigate, children }: { route: AppRoute; onN
       <button className="collapse-button" onClick={() => setCollapsed(value => !value)}><PanelLeftClose size={16} /><span>Recolher menu</span></button>
     </aside>
     <main className="control-main">
-      <header className="control-topbar"><div className="topbar-title"><button className="mobile-menu" onClick={() => setMobileOpen(true)}><Menu /></button><div><span>RH CONTROL</span><h1>{active.label}</h1></div></div><div className="topbar-actions"><button className="notification-button" aria-label="Notificações"><Bell size={18} /><i /></button><div className="account-wrap"><button className="account-button" onClick={() => setAccountOpen(value => !value)}><span className="avatar">{user.name.split(" ").slice(0,2).map(part => part[0]).join("")}</span><span><strong>{user.name}</strong><small>{user.role === "ADMINISTRADOR" ? "Administradora" : user.role}</small></span><ChevronDown size={15} /></button>{accountOpen && <div className="account-menu"><div><strong>{user.name}</strong><small>{user.email}</small></div><button onClick={() => navigate("settings")}>Minha conta</button><a href="/signout-with-chatgpt?return_to=/">Sair</a></div>}</div></div></header>
+      <header className="control-topbar"><div className="topbar-title"><button className="mobile-menu" onClick={() => setMobileOpen(true)}><Menu /></button><div><span>RH CONTROL</span><h1>{active.label}</h1></div></div><div className="topbar-actions"><button className="notification-button" aria-label="Notificações"><Bell size={18} /><i /></button><div className="account-wrap" ref={accountRef}><button className="account-button" aria-expanded={accountOpen} aria-haspopup="menu" onClick={() => setAccountOpen(value => !value)}><span className="avatar">{user.name.split(" ").slice(0,2).map(part => part[0]).join("")}</span><span><strong>{user.name}</strong><small>{user.role === "ADMINISTRADOR" ? "Administradora" : user.role}</small></span><ChevronDown size={15} /></button>{accountOpen && <div className="account-menu" role="menu"><div><strong>{user.name}</strong><small>{user.email}</small></div><button role="menuitem" onClick={() => navigate("settings")}>Minha conta</button><button role="menuitem" onClick={() => { window.location.href = "/signout-with-chatgpt?return_to=/"; }}>Sair</button></div>}</div></div></header>
       <div className="control-content">{children}</div>
     </main>
   </div>;
