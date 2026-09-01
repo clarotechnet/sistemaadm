@@ -58,7 +58,9 @@ test("notification button opens recent activity and links to history", async () 
   const shell = await readFile(new URL("../app/ui/components/AppShell.tsx", import.meta.url), "utf8");
   assert.match(shell, /setNotificationsOpen\(value => !value\)/);
   assert.match(shell, /notification-menu/);
-  assert.match(shell, /audits\.slice\(0,5\)/);
+  assert.match(shell, /visibleNotifications\.slice\(0,5\)/);
+  assert.match(shell, /notification-clear/);
+  assert.match(shell, /localStorage\.setItem\(notificationStorageKey,clearedAt\)/);
   assert.match(shell, /navigate\("history"\)/);
 });
 

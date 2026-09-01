@@ -90,8 +90,9 @@ body{font-size:14px}.control-shell{min-height:100vh;display:flex}.control-sideba
 /* Functional notifications and user-profile controls. */
 .notification-wrap{position:relative}
 .notification-menu{position:absolute;right:0;top:47px;width:340px;background:#fff;border:1px solid #ddd;box-shadow:0 12px 32px #0002;border-radius:10px;overflow:hidden;z-index:95}
-.notification-menu-header{padding:13px 14px;border-bottom:1px solid #eee;display:flex;flex-direction:column}
-.notification-menu-header strong{font-size:12px}.notification-menu-header small{font-size:8px;color:#888;margin-top:3px}
+.notification-menu-header{padding:11px 12px 11px 14px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.notification-menu-header>span{display:flex;flex-direction:column}.notification-menu-header strong{font-size:12px}.notification-menu-header small{font-size:8px;color:#888;margin-top:3px}
+.notification-clear{height:29px;border:1px solid #e8caca;border-radius:6px;background:#fff;color:var(--primary);display:flex;align-items:center;gap:5px;padding:0 8px;font-size:8px;font-weight:750}.notification-clear:hover{background:#fff3f3}.notification-clear:disabled{opacity:.4;cursor:not-allowed}
 .notification-list{max-height:315px;overflow:auto}
 .notification-list article{display:grid;grid-template-columns:8px 1fr;gap:9px;padding:11px 14px;border-bottom:1px solid #f0f0f0}
 .notification-list article>i{width:7px;height:7px;border-radius:50%;background:#888;margin-top:4px}.notification-list article>i.sucesso{background:var(--success)}.notification-list article>i.aviso{background:#d38312}.notification-list article>i.erro{background:var(--primary)}
