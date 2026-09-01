@@ -23,3 +23,10 @@ test("publishes product metadata and social preview", async () => {
   assert.match(layout, /og\.png/);
   await access(new URL("../public/og.png", import.meta.url));
 });
+
+test("serves the PDF.js worker from the same web origin", async () => {
+  const service = await readFile(new URL("../src/services/pdf.ts", import.meta.url), "utf8");
+  assert.match(service, /workerSrc\s*=\s*["']\/pdf\.worker\.min\.mjs["']/);
+  assert.doesNotMatch(service, /new URL\(["']pdfjs-dist\/build\/pdf\.worker/);
+  await access(new URL("../public/pdf.worker.min.mjs", import.meta.url));
+});
