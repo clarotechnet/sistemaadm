@@ -86,3 +86,18 @@ body{font-size:14px}.control-shell{min-height:100vh;display:flex}.control-sideba
 .edit-text-hint.empty,.edit-text-hint.error{border-color:#efd59c;background:#fff8e9;color:#795100}
 .tool-editText{cursor:text}
 @media(max-width:620px){.editor-heading .editor-remove{display:none}.editor-heading .editor-close{padding:0 9px}.edit-text-hint{top:6px}}
+
+/* Functional notifications and user-profile controls. */
+.notification-wrap{position:relative}
+.notification-menu{position:absolute;right:0;top:47px;width:340px;background:#fff;border:1px solid #ddd;box-shadow:0 12px 32px #0002;border-radius:10px;overflow:hidden;z-index:95}
+.notification-menu-header{padding:13px 14px;border-bottom:1px solid #eee;display:flex;flex-direction:column}
+.notification-menu-header strong{font-size:12px}.notification-menu-header small{font-size:8px;color:#888;margin-top:3px}
+.notification-list{max-height:315px;overflow:auto}
+.notification-list article{display:grid;grid-template-columns:8px 1fr;gap:9px;padding:11px 14px;border-bottom:1px solid #f0f0f0}
+.notification-list article>i{width:7px;height:7px;border-radius:50%;background:#888;margin-top:4px}.notification-list article>i.sucesso{background:var(--success)}.notification-list article>i.aviso{background:#d38312}.notification-list article>i.erro{background:var(--primary)}
+.notification-list article>span{display:flex;flex-direction:column;min-width:0}.notification-list article strong{font-size:9px}.notification-list article small{font-size:8px;color:#666;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.notification-list article time{font-size:7px;color:#999;margin-top:4px}
+.notification-empty{padding:28px 16px;text-align:center;color:#888;display:flex;flex-direction:column;align-items:center}.notification-empty svg{color:#aaa}.notification-empty strong{font-size:10px;color:#555;margin-top:8px}.notification-empty small{font-size:8px;margin-top:4px}
+.notification-history{width:100%;height:40px;border:0;background:#fafafa;color:var(--primary);display:flex;align-items:center;justify-content:center;gap:6px;font-size:9px;font-weight:750}.notification-history:hover{background:#f8eded}
+.users-access-warning{margin-bottom:14px;align-items:flex-start}.users-access-warning>span{display:flex;flex-direction:column}.users-access-warning strong{font-size:9px}.users-access-warning small{font-size:8px;line-height:1.45;margin-top:3px}
+.profile-control{display:flex;flex-direction:column;align-items:flex-start;gap:3px}.profile-control small{font-size:7px;color:#888}
+@media(max-width:620px){.notification-menu{position:fixed;top:66px;left:12px;right:12px;width:auto}}

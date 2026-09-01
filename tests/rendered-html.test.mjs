@@ -53,3 +53,23 @@ test("account menu closes after clicking outside or pressing Escape", async () =
   assert.match(shell, /event\.key === "Escape"/);
   assert.match(shell, /aria-expanded=\{accountOpen\}/);
 });
+
+test("notification button opens recent activity and links to history", async () => {
+  const shell = await readFile(new URL("../app/ui/components/AppShell.tsx", import.meta.url), "utf8");
+  assert.match(shell, /setNotificationsOpen\(value => !value\)/);
+  assert.match(shell, /notification-menu/);
+  assert.match(shell, /audits\.slice\(0,5\)/);
+  assert.match(shell, /navigate\("history"\)/);
+});
+
+test("user roles can be updated with last-admin protection and clear feedback", async () => {
+  const [page, route] = await Promise.all([
+    readFile(new URL("../app/ui/pages/UsersPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/users/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(page, /disabled=\{user\.id===currentUser\.id\}/);
+  assert.match(page, /Novo perfil:/);
+  assert.match(page, /data\.error/);
+  assert.match(route, /manter pelo menos um administrador ativo/);
+  assert.match(route, /ne\(profiles\.id,target\.id\)/);
+});
