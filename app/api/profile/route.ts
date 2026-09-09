@@ -1,8 +1,5 @@
-import { eq } from "drizzle-orm";
-import { getChatGPTUser } from "../../chatgpt-auth";
-import { getDb } from "../../../db";
-import { profiles } from "../../../db/schema";
-import { getOrCreateProfile } from "../../../src/server/profile";
+import { createSupabaseServerClient } from "../../../src/lib/supabase/server";
 
-export async function GET(){const user=await getChatGPTUser();if(!user)return Response.json({error:"Não autenticado"},{status:401});return Response.json({profile:await getOrCreateProfile(user)})}
-export async function PATCH(request:Request){const user=await getChatGPTUser();if(!user)return Response.json({error:"Não autenticado"},{status:401});const payload=await request.json() as {name?:string;department?:string;jobTitle?:string};await getOrCreateProfile(user);await getDb().update(profiles).set({fullName:payload.name?.trim()||user.displayName,department:payload.department?.trim()??"",jobTitle:payload.jobTitle?.trim()??"",updatedAt:new Date().toISOString()}).where(eq(profiles.id,user.userId));return Response.json({ok:true})}
+export async function GET(){const supabase=await createSupabaseServerClient();const{data:{user}}=await supabase.auth.getUser();if(!user)return Response.json({error:"Não autenticado"},{status:401});const{data,error}=await supabase.from("profiles").select("id,email,full_name,department,job_title,role,status").eq("id",user.id).single();if(error)return Response.json({error:error.message},{status:500});return Response.json({profile:{id:data.id,email:data.email,name:data.full_name,department:data.department,jobTitle:data.job_title,role:data.role,status:data.status}})}
+
+export async function PATCH(request:Request){const supabase=await createSupabaseServerClient();const{data:{user}}=await supabase.auth.getUser();if(!user)return Response.json({error:"Não autenticado"},{status:401});const payload=await request.json() as {name?:string;department?:string;jobTitle?:string};const{error}=await supabase.from("profiles").update({full_name:payload.name?.trim()||user.email||"Usuário",department:payload.department?.trim()??"",job_title:payload.jobTitle?.trim()??"",updated_at:new Date().toISOString()}).eq("id",user.id);if(error)return Response.json({error:error.message},{status:400});return Response.json({ok:true})}

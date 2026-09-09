@@ -11,15 +11,20 @@
     "start": "vinext start",
     "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/core.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.5",
+    "@supabase/supabase-js": "^2.114.0",
+    "dotenv": "^17.4.2",
     "drizzle-orm": "0.45.2",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.1",
     "lucide-react": "^1.38.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.3.289",
+    "postgres": "^3.4.9",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "xlsx": "^0.18.5"

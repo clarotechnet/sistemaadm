@@ -1,5 +1,23 @@
 export type Role = "ADMINISTRADOR" | "RH" | "CONSULTA";
 export type ComparisonStatus = "OK" | "DIVERGENTE" | "NÃO LOCALIZADO NA REFERÊNCIA" | "NÃO LOCALIZADO NA FOLHA";
+export type FileRetentionMode = "NONE" | "24_HOURS" | "SECURE_OPTIONAL";
+
+export interface SystemSettings {
+  maskCpf: boolean;
+  fileRetention: FileRetentionMode;
+  financialTolerance: number;
+  updatedAt?: string;
+}
+
+export interface RawFileUpload {
+  id: string;
+  fileName: string;
+  sizeBytes: number;
+  retentionMode: Exclude<FileRetentionMode,"NONE">;
+  expiresAt: string | null;
+  createdAt: string;
+  ownerName?: string;
+}
 
 export interface UserProfile {
   id: string;
@@ -10,7 +28,6 @@ export interface UserProfile {
   role: Role;
   status: "ATIVO" | "AGUARDANDO APROVAÇÃO" | "BLOQUEADO";
 }
-
 export interface ParsedSheet {
   name: string;
   headerRow: number;
@@ -47,7 +64,6 @@ export interface ActivePayroll {
   records: PayrollRecord[];
   logs: string[];
 }
-
 export interface ReferenceRecord { cpf: string; name: string; value: number; }
 
 export interface ComparisonRow {

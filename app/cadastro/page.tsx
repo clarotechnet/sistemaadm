@@ -1,6 +1,7 @@
-import { redirect } from "next/navigation";
-import { getChatGPTUser } from "../chatgpt-auth";
 import { RegistrationScreen } from "../ui/RegistrationScreen";
-import { getOrCreateProfile } from "../../src/server/profile";
+import { SignupScreen } from "../ui/SignupScreen";
+import { getCurrentAuthUser, getCurrentProfile } from "../../src/server/auth";
+import type { UserProfile } from "../../src/types";
+
 export const dynamic="force-dynamic";
-export default async function Cadastro(){const user=await getChatGPTUser();if(!user)redirect("/signin-with-chatgpt?return_to=/cadastro");const profile=await getOrCreateProfile(user);return <RegistrationScreen profile={profile}/>}
+export default async function Cadastro(){const user=await getCurrentAuthUser();if(!user)return <SignupScreen/>;let profile=await getCurrentProfile();if(!profile){profile={id:user.id,email:user.email??"",name:String(user.user_metadata?.full_name??user.email??"Usuário"),department:String(user.user_metadata?.department??""),jobTitle:String(user.user_metadata?.job_title??""),role:"CONSULTA",status:"AGUARDANDO APROVAÇÃO"} satisfies UserProfile}return <RegistrationScreen profile={profile}/>}

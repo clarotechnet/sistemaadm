@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788357549148,
+      "tag": "0000_orange_molecule_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788372352340,
+      "tag": "0001_friendly_deadpool",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788376110013,
+      "tag": "0002_loose_invaders",
+      "breakpoints": true
+    }
+  ]
+}
