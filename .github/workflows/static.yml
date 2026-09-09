@@ -1,4 +1,4 @@
-name: Deploy Hostinger
+name: Validar aplicação
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
-    name: Build e enviar para Hostinger
+  validate:
+    name: Build e testes
     runs-on: ubuntu-latest
 
     steps:
@@ -24,20 +24,11 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Build e testes
+        run: npm test
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-
-      - name: Enviar dist para Hostinger
-        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
-        with:
-          server: ${{ secrets.HOSTINGER_FTP_SERVER }}
-          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
-          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
-          protocol: ftp
-          port: 21
-          local-dir: ./dist/
-          server-dir: ./administrativo/
-          log-level: verbose
+          DEPLOY_TARGET: hostinger
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || secrets.VITE_SUPABASE_URL || 'https://example.supabase.co' }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_ci_placeholder' }}
+          NEXT_PUBLIC_APP_URL: https://administrativo.clarotechnet.com.br
+          SITE_URL: https://administrativo.clarotechnet.com.br

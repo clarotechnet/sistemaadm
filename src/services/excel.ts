@@ -1,11 +1,10 @@
-import * as XLSX from "xlsx";
-import ExcelJS from "exceljs";
 import type { ComparisonRow, ParsedSheet, ParsedWorkbook } from "../types";
 import { normalizeHeader } from "../utils/text";
 
 const HEADER_HINTS = ["CPF", "NOME", "COLABORADOR", "LIQUIDO", "PLANO", "FOLHA", "VALOR", "COMPETENCIA"];
 
 export async function readExcel(file: File): Promise<ParsedWorkbook> {
+  const XLSX = await import("xlsx");
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true, codepage: 1252, raw: true });
   const sheets: ParsedSheet[] = [];
@@ -55,33 +54,26 @@ export function detectColumns(headers: string[], aliases: string[], options: { a
 }
 
 export async function exportComparisonExcel(rows: ComparisonRow[], fileName: string, valueLabel: string) {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "RH Control";
-  const columns = [
-    { header: "Nome", key: "name", width: 34 }, { header: "CPF", key: "cpf", width: 18 },
-    { header: `${valueLabel} Folha`, key: "payrollValue", width: 20 }, { header: "Valor Referência", key: "referenceValue", width: 20 },
-    { header: "Diferença", key: "difference", width: 18 }, { header: "Líquido", key: "liquid", width: 18 },
-    { header: "Qtd. Colunas", key: "columnCount", width: 15 }, { header: "Status", key: "status", width: 34 },
-  ];
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.utils.book_new();
+  workbook.Props = { Author: "RH Control", Company: "TechNET" };
+  const headers = ["Nome", "CPF", `${valueLabel} Folha`, "Valor Referência", "Diferença", "Líquido", "Qtd. Colunas", "Status"];
   const addSheet = (name: string, values: ComparisonRow[]) => {
-    const worksheet = workbook.addWorksheet(name, { views: [{ state: "frozen", ySplit: 1 }] });
-    worksheet.columns = columns;
-    values.forEach(value => worksheet.addRow(value));
-    worksheet.autoFilter = { from: "A1", to: "H1" };
-    const header = worksheet.getRow(1);
-    header.height = 24;
-    header.eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC91818" } }; cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.alignment = { vertical: "middle" }; });
-    ["C", "D", "E", "F"].forEach(column => { worksheet.getColumn(column).numFmt = 'R$ #,##0.00;[Red]-R$ #,##0.00'; });
-    worksheet.eachRow((row, index) => {
-      if (index === 1) return;
-      const status = String(row.getCell(8).value ?? "");
-      const color = status === "OK" ? "FFE7F5EC" : status === "DIVERGENTE" ? "FFFDE8E8" : "FFFFF3D6";
-      row.eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: color } }; cell.border = { bottom: { style: "hair", color: { argb: "FFE3E3E3" } } }; });
-    });
+    const data = values.map(value => [value.name, value.cpf, value.payrollValue, value.referenceValue, value.difference, value.liquid, value.columnCount, value.status]);
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    worksheet["!cols"] = [{ wch: 34 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 15 }, { wch: 34 }];
+    worksheet["!autofilter"] = { ref: `A1:H${Math.max(1, data.length + 1)}` };
+    for (let row = 2; row <= data.length + 1; row += 1) {
+      for (const column of ["C", "D", "E", "F"]) {
+        const cell = worksheet[`${column}${row}`];
+        if (cell) cell.z = 'R$ #,##0.00;[Red]-R$ #,##0.00';
+      }
+    }
+    XLSX.utils.book_append_sheet(workbook, worksheet, name);
   };
   addSheet("Comparativo", rows);
   addSheet("Problemas", rows.filter(row => row.status !== "OK"));
-  const output = await workbook.xlsx.writeBuffer();
+  const output = XLSX.write(workbook, { type: "array", bookType: "xlsx", compression: true });
   const { downloadFile } = await import("../utils/download");
   downloadFile(output, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 }

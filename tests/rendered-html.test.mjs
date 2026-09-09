@@ -8,12 +8,31 @@ test("defines the protected RH Control entry flow", async () => {
     readFile(new URL("../app/ui/LoginScreen.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /getChatGPTUser/);
+  assert.match(page, /getCurrentAuthUser/);
+  assert.match(page, /getCurrentProfile/);
   assert.match(page, /LoginScreen/);
   assert.match(login, /Acesse sua conta/);
-  assert.match(login, /signin-with-chatgpt/);
+  assert.match(login, /signInWithPassword/);
+  assert.match(login, /autenticação protegida pelo Supabase/);
   assert.match(layout, /RH Control/);
   assert.doesNotMatch(page + login + layout, /codex-preview|Your site is taking shape|react-loading-skeleton/);
+});
+
+test("supports current Supabase keys without exposing the server secret", async () => {
+  const [client, admin, proxy] = await Promise.all([
+    readFile(new URL("../src/lib/supabase/client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/supabase/admin.ts", import.meta.url), "utf8"),
+    readFile(new URL("../proxy.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(client + proxy, /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+  assert.match(admin, /SUPABASE_SECRET_KEY/);
+  assert.doesNotMatch(client + proxy, /SUPABASE_SECRET_KEY|SUPABASE_SERVICE_ROLE_KEY/);
+});
+
+test("build configuration has a dedicated Hostinger Node target", async () => {
+  const config = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8");
+  assert.match(config, /DEPLOY_TARGET === "hostinger"/);
+  assert.match(config, /plugins: \[vinext\(\), \.\.\.cloudflarePlugins\]/);
 });
 
 test("publishes product metadata and social preview", async () => {
@@ -65,13 +84,15 @@ test("notification button opens recent activity and links to history", async () 
 });
 
 test("user roles can be updated with last-admin protection and clear feedback", async () => {
-  const [page, route] = await Promise.all([
+  const [page, route, migration] = await Promise.all([
     readFile(new URL("../app/ui/pages/UsersPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/users/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/0007_security_hardening.sql", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(page, /disabled=\{user\.id===currentUser\.id\}/);
   assert.match(page, /Novo perfil:/);
   assert.match(page, /data\.error/);
-  assert.match(route, /manter pelo menos um administrador ativo/);
-  assert.match(route, /ne\(profiles\.id,target\.id\)/);
+  assert.match(route, /admin_update_profile/);
+  assert.match(migration, /manter pelo menos um administrador ativo/);
+  assert.match(migration, /p\.id<>target\.id/);
 });
