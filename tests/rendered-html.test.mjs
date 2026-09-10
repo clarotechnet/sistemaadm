@@ -113,3 +113,27 @@ test("returning to a browser tab does not replace the current work with the glob
   assert.match(authSession, /event === "TOKEN_REFRESHED"/);
   assert.match(authSession, /event === "SIGNED_IN" && sessionUserId === currentUserId/);
 });
+
+test("provides a private employee-document center with monthly audit packages", async () => {
+  const [page, service, shell, app, migration] = await Promise.all([
+    readFile(new URL("../app/ui/pages/EmployeeDocumentsPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/services/employee-documents.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui/components/AppShell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui/RHControlApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260910192418_employee_document_center.sql", import.meta.url), "utf8"),
+  ]);
+  assert.match(shell, /Documentos RH/);
+  assert.match(app, /EmployeeDocumentsPage/);
+  assert.match(page, /Gerar pacote mensal/);
+  assert.match(page, /Relacao_de_documentos\.xlsx/);
+  assert.match(page, /Pendências/);
+  assert.match(service, /employee-documents/);
+  assert.match(service, /SHA-256/);
+  assert.match(migration, /create table if not exists public\.employees/);
+  assert.match(migration, /create table if not exists public\.employee_documents/);
+  assert.match(migration, /alter table public\.employee_documents enable row level security/);
+  assert.match(migration, /values \('employee-documents', 'employee-documents', false/);
+  assert.match(migration, /public\.is_rh_or_admin\(\)/);
+  assert.match(migration, /public\.is_admin\(\)/);
+  assert.doesNotMatch(migration, /service_role/);
+});

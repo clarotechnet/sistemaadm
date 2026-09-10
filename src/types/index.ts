@@ -19,6 +19,55 @@ export interface RawFileUpload {
   ownerName?: string;
 }
 
+export type EmployeeStatus = "ATIVO" | "DESLIGADO";
+export type EmployeeDocumentStatus = "RECEBIDO" | "CONFERIDO" | "REJEITADO";
+
+export interface Employee {
+  id: string;
+  name: string;
+  cpf: string;
+  registration: string;
+  department: string;
+  jobTitle: string;
+  status: EmployeeStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentCategory {
+  id: string;
+  label: string;
+  monthlyRequired: boolean;
+  active: boolean;
+  sortOrder: number;
+}
+
+export interface EmployeeDocument {
+  id: string;
+  employeeId: string;
+  categoryId: string;
+  competence: string;
+  title: string;
+  fileName: string;
+  storagePath: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  version: number;
+  isCurrent: boolean;
+  supersedesDocumentId: string | null;
+  reviewStatus: EmployeeDocumentStatus;
+  notes: string;
+  uploadedBy: string;
+  uploadedByName: string;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  deletedByName: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;

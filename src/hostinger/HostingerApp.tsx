@@ -20,7 +20,7 @@ function routeFromLocation() {
   return url.pathname;
 }
 
-const appRoutes: AppRoute[] = ["dashboard", "payroll", "pdfs", "reports", "history", "users", "settings"];
+const appRoutes: AppRoute[] = ["dashboard", "payroll", "documents", "pdfs", "reports", "history", "users", "settings"];
 function appRouteFromPath(path: string): AppRoute {
   const route = path.split("/").filter(Boolean)[0] as AppRoute;
   return appRoutes.includes(route) ? route : "dashboard";

@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, ChevronDown, FileBarChart, FileStack, Gauge, History, Menu, PanelLeftClose, Settings, Sheet, ShieldCheck, Trash2, Users, X } from "lucide-react";
+import { Bell, ChevronDown, FileBarChart, FileStack, FolderLock, Gauge, History, Menu, PanelLeftClose, Settings, Sheet, ShieldCheck, Trash2, Users, X } from "lucide-react";
 import { useApp } from "../state/AppContext";
 import { createSupabaseBrowserClient } from "../../../src/lib/supabase/client";
 
-export type AppRoute = "dashboard" | "payroll" | "pdfs" | "reports" | "history" | "users" | "settings";
+export type AppRoute = "dashboard" | "payroll" | "documents" | "pdfs" | "reports" | "history" | "users" | "settings";
 const routes: { id: AppRoute; label: string; icon: typeof Gauge; roles?: string[] }[] = [
   { id: "dashboard", label: "Dashboard", icon: Gauge }, { id: "payroll", label: "Dados da Folha", icon: Sheet, roles: ["ADMINISTRADOR", "RH"] },
+  { id: "documents", label: "Documentos RH", icon: FolderLock },
   { id: "pdfs", label: "PDFs", icon: FileStack, roles: ["ADMINISTRADOR", "RH"] }, { id: "reports", label: "Relatórios", icon: FileBarChart },
   { id: "history", label: "Histórico", icon: History }, { id: "users", label: "Usuários", icon: Users, roles: ["ADMINISTRADOR"] },
   { id: "settings", label: "Configurações", icon: Settings, roles: ["ADMINISTRADOR"] },

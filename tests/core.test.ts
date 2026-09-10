@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeCpf, formatCpf } from "../src/utils/cpf";
+import { normalizeCpf, formatCpf, isValidCpf } from "../src/utils/cpf";
 import { normalizeHeader } from "../src/utils/text";
 import { parseMoney } from "../src/utils/money";
 import { processPayroll } from "../src/modules/payroll/processor";
@@ -12,6 +12,8 @@ test("normalizes CPF, headers and Brazilian money consistently", () => {
   assert.equal(normalizeCpf("110.673.044-52"), "11067304452");
   assert.equal(normalizeCpf(123456789), "00123456789");
   assert.equal(formatCpf("11067304452"), "110.673.044-52");
+  assert.equal(isValidCpf("110.673.044-52"), true);
+  assert.equal(isValidCpf("111.111.111-11"), false);
   assert.equal(normalizeHeader("  PLANO__DE  SAÚDE "), "PLANO DE SAUDE");
   assert.equal(parseMoney("R$ 1.234,56"), 1234.56);
   assert.equal(parseMoney("(419,00)"), -419);
