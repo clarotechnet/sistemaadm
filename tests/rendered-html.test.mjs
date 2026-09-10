@@ -84,11 +84,12 @@ test("notification button opens recent activity and links to history", async () 
 });
 
 test("user roles can be updated with last-admin protection and clear feedback", async () => {
-  const [page, route, backend, migration] = await Promise.all([
+  const [page, route, backend, migration, permissionMigration] = await Promise.all([
     readFile(new URL("../app/ui/pages/UsersPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/users/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/services/browser-backend.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/0007_security_hardening.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260910172817_enforce_security_definer_permissions.sql", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(page, /disabled=\{user\.id===currentUser\.id\}/);
   assert.match(page, /Novo perfil:/);
@@ -96,4 +97,7 @@ test("user roles can be updated with last-admin protection and clear feedback", 
   assert.match(route, /admin_update_profile/);
   assert.match(migration, /manter pelo menos um administrador ativo/);
   assert.match(migration, /p\.id<>target\.id/);
+  assert.match(permissionMigration, /handle_new_user\(\) from public, anon, authenticated/);
+  assert.match(permissionMigration, /rls_auto_enable\(\)/);
+  assert.match(permissionMigration, /grant execute on function public\.admin_update_profile\(uuid, text, text\) to authenticated/);
 });

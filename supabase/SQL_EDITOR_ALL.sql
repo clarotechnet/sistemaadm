@@ -454,3 +454,12 @@ create policy rh_private_files_insert on storage.objects for insert to authentic
 with check (bucket_id='rh-private-files' and (storage.foldername(name))[1]=(select auth.uid()::text) and public.is_active_user());
 create policy rh_private_files_delete on storage.objects for delete to authenticated
 using (bucket_id='rh-private-files' and (owner_id=(select auth.uid()::text) or public.is_admin()));
+
+-- 0009 / impede a execucao direta do event-trigger de RLS, quando ele existir
+do $$
+begin
+  if to_regprocedure('public.rls_auto_enable()') is not null then
+    execute 'revoke all on function public.rls_auto_enable() from public, anon, authenticated';
+  end if;
+end;
+$$;
