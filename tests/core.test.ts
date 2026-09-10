@@ -6,6 +6,7 @@ import { parseMoney } from "../src/utils/money";
 import { processPayroll } from "../src/modules/payroll/processor";
 import { comparePlan, parseReference } from "../src/modules/comparisons/processor";
 import { decideAuthSessionEvent } from "../src/hostinger/auth-session";
+import { pdfCompressionSaving } from "../src/services/pdf";
 import type { ParsedWorkbook } from "../src/types";
 
 test("normalizes CPF, headers and Brazilian money consistently", () => {
@@ -37,4 +38,10 @@ test("keeps the current screen mounted when an existing browser session is recon
   assert.equal(decideAuthSessionEvent("USER_UPDATED", "user-1", "user-1", true), "refresh-profile");
   assert.equal(decideAuthSessionEvent("SIGNED_IN", "user-2", "user-1", true), "replace-user");
   assert.equal(decideAuthSessionEvent("SIGNED_OUT", null, "user-1", true), "sign-out");
+});
+
+test("calculates PDF compression savings without reporting negative reductions", () => {
+  assert.equal(pdfCompressionSaving(1_000, 600), 40);
+  assert.equal(pdfCompressionSaving(1_000, 1_200), 0);
+  assert.equal(pdfCompressionSaving(0, 0), 0);
 });

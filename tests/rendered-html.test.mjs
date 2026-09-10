@@ -137,3 +137,23 @@ test("provides a private employee-document center with monthly audit packages", 
   assert.match(migration, /public\.is_admin\(\)/);
   assert.doesNotMatch(migration, /service_role/);
 });
+
+test("adds local batch PDF compression and compact ZIP workflows", async () => {
+  const [toolsPage, compressor, service] = await Promise.all([
+    readFile(new URL("../app/ui/pages/PdfToolsPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui/pages/pdf/PdfCompressor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/services/pdf.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(toolsPage, /Compactar PDFs/);
+  assert.match(toolsPage, /PdfCompressor/);
+  assert.match(compressor, /Diminuir PDFs/);
+  assert.match(compressor, /Criar ZIP menor/);
+  assert.match(compressor, /Forte legível/);
+  assert.match(compressor, /Converter para tons de cinza/);
+  assert.match(compressor, /Baixar ZIP/);
+  assert.match(compressor, /Limpar/);
+  assert.match(service, /maxPixels = 16_000_000/);
+  assert.match(service, /generated\.size >= file\.size/);
+  assert.match(service, /loadingTask\.destroy\(\)/);
+  assert.doesNotMatch(compressor, /fetch\(/);
+});
