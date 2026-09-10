@@ -101,3 +101,15 @@ test("user roles can be updated with last-admin protection and clear feedback", 
   assert.match(permissionMigration, /rls_auto_enable\(\)/);
   assert.match(permissionMigration, /grant execute on function public\.admin_update_profile\(uuid, text, text\) to authenticated/);
 });
+
+test("returning to a browser tab does not replace the current work with the global loader", async () => {
+  const [hostingerApp, authSession] = await Promise.all([
+    readFile(new URL("../src/hostinger/HostingerApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/hostinger/auth-session.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(hostingerApp, /onAuthStateChange\(\(event, session\)/);
+  assert.match(hostingerApp, /refreshProfileInBackground/);
+  assert.doesNotMatch(hostingerApp, /onAuthStateChange\(\(\) => \{ void (?:refresh|initialize)\(\); \}\)/);
+  assert.match(authSession, /event === "TOKEN_REFRESHED"/);
+  assert.match(authSession, /event === "SIGNED_IN" && sessionUserId === currentUserId/);
+});

@@ -5,6 +5,7 @@ import { normalizeHeader } from "../src/utils/text";
 import { parseMoney } from "../src/utils/money";
 import { processPayroll } from "../src/modules/payroll/processor";
 import { comparePlan, parseReference } from "../src/modules/comparisons/processor";
+import { decideAuthSessionEvent } from "../src/hostinger/auth-session";
 import type { ParsedWorkbook } from "../src/types";
 
 test("normalizes CPF, headers and Brazilian money consistently", () => {
@@ -25,4 +26,13 @@ test("sums duplicate plan columns and compares the union of CPFs", () => {
   assert.equal(result.summary.total,3);
   assert.equal(result.summary.ok,1);
   assert.equal(result.summary.missing,2);
+});
+
+test("keeps the current screen mounted when an existing browser session is reconfirmed", () => {
+  assert.equal(decideAuthSessionEvent("INITIAL_SESSION", "user-1", null, false), "ignore");
+  assert.equal(decideAuthSessionEvent("TOKEN_REFRESHED", "user-1", "user-1", true), "ignore");
+  assert.equal(decideAuthSessionEvent("SIGNED_IN", "user-1", "user-1", true), "ignore");
+  assert.equal(decideAuthSessionEvent("USER_UPDATED", "user-1", "user-1", true), "refresh-profile");
+  assert.equal(decideAuthSessionEvent("SIGNED_IN", "user-2", "user-1", true), "replace-user");
+  assert.equal(decideAuthSessionEvent("SIGNED_OUT", null, "user-1", true), "sign-out");
 });

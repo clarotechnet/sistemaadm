@@ -9,6 +9,7 @@ import type { AppRoute } from "../../app/ui/components/AppShell";
 import type { UserProfile } from "../types";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import { loadCurrentProfile } from "../services/browser-backend";
+import { decideAuthSessionEvent } from "./auth-session";
 
 function LoadingScreen() {
   return <main className="registration-page"><section className="registration-card"><h1>RH Control</h1><p>Carregando ambiente seguro...</p></section></main>;
@@ -35,8 +36,11 @@ export function HostingerApp() {
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     let active = true;
+    let initialized = false;
+    let currentUserId: string | null = null;
+    let profileRequest = 0;
 
-    const refresh = async () => {
+    const initialize = async () => {
       setLoading(true);
       setError("");
       try {
@@ -53,17 +57,52 @@ export function HostingerApp() {
         const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
         if (userError && userError.name !== "AuthSessionMissingError") throw userError;
         if (!active) return;
+        currentUserId = currentUser?.id ?? null;
         setUser(currentUser);
-        setProfile(currentUser ? await loadCurrentProfile(currentUser.id) : null);
+        const request = ++profileRequest;
+        const currentProfile = currentUser ? await loadCurrentProfile(currentUser.id) : null;
+        if (active && request === profileRequest) setProfile(currentProfile);
       } catch (caught) {
         if (active) setError(caught instanceof Error ? caught.message : "Não foi possível carregar sua sessão.");
       } finally {
+        initialized = true;
         if (active) setLoading(false);
       }
     };
 
-    void refresh();
-    const { data: listener } = supabase.auth.onAuthStateChange(() => { void refresh(); });
+    const refreshProfileInBackground = (nextUser: User) => {
+      const request = ++profileRequest;
+      window.setTimeout(() => {
+        void loadCurrentProfile(nextUser.id)
+          .then(nextProfile => {
+            if (active && request === profileRequest) setProfile(nextProfile);
+          })
+          .catch(() => undefined);
+      }, 0);
+    };
+
+    void initialize();
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
+      const nextUser = session?.user ?? null;
+      const decision = decideAuthSessionEvent(event, nextUser?.id ?? null, currentUserId, initialized);
+
+      if (decision === "ignore") return;
+      if (decision === "sign-out") {
+        currentUserId = null;
+        profileRequest += 1;
+        setUser(null);
+        setProfile(null);
+        setError("");
+        return;
+      }
+      if (!nextUser) return;
+
+      currentUserId = nextUser.id;
+      setUser(nextUser);
+      if (decision === "replace-user") setProfile(null);
+      refreshProfileInBackground(nextUser);
+    });
     const onPopState = () => setPath(routeFromLocation());
     window.addEventListener("popstate", onPopState);
     return () => {
