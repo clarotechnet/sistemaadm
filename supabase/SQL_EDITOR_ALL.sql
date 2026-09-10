@@ -443,3 +443,14 @@ create index if not exists idx_payroll_imports_user on public.payroll_imports(us
 create index if not exists idx_pdf_jobs_job on public.pdf_jobs(job_id);
 create index if not exists idx_benefit_jobs_job on public.benefit_jobs(job_id);
 create index if not exists idx_system_settings_updated_by on public.system_settings(updated_by);
+
+-- 0008 / SPA estática da Hostinger: acesso seguro ao Storage privado
+drop policy if exists rh_private_files_select on storage.objects;
+drop policy if exists rh_private_files_insert on storage.objects;
+drop policy if exists rh_private_files_delete on storage.objects;
+create policy rh_private_files_select on storage.objects for select to authenticated
+using (bucket_id='rh-private-files' and (owner_id=(select auth.uid()::text) or public.is_admin()));
+create policy rh_private_files_insert on storage.objects for insert to authenticated
+with check (bucket_id='rh-private-files' and (storage.foldername(name))[1]=(select auth.uid()::text) and public.is_active_user());
+create policy rh_private_files_delete on storage.objects for delete to authenticated
+using (bucket_id='rh-private-files' and (owner_id=(select auth.uid()::text) or public.is_admin()));

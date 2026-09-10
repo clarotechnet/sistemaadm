@@ -17,28 +17,21 @@ Nunca envie `.env.local`, `SUPABASE_SECRET_KEY`, `SUPABASE_SERVICE_ROLE_KEY` ou 
 
 ## Publicação na Hostinger
 
-Este projeto é uma aplicação Node.js dinâmica. Não publique somente a pasta `dist` por FTP: ela não contém um `index.html` de site estático e esse fluxo resulta em erro 403.
+O projeto mantém dois destinos: o build dinâmico Vinext (`npm run build`) e uma SPA estática exclusiva para a hospedagem compartilhada (`npm run build:hostinger`). O segundo gera `dist-hostinger/index.html`, `assets/` e `.htaccess`, podendo ser enviado por FTP sem configurar uma aplicação Node.js no hPanel.
 
-Na Hostinger, use **Sites → Adicionar site → Implantar aplicação web → Importar repositório Git** e selecione este repositório. Configure:
-
-- Node.js: 22 ou superior
-- Comando de instalação: `npm ci`
-- Comando de build: `npm run build`
-- Comando de início: `npm start`
-- Diretório de saída, se solicitado: `dist`
-
-Variáveis de produção:
+Secrets exclusivos usados pelo GitHub Actions:
 
 ```dotenv
-DEPLOY_TARGET=hostinger
-NEXT_PUBLIC_SUPABASE_URL=https://SEU-PROJETO.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_SEU_VALOR
-SUPABASE_SECRET_KEY=sb_secret_SEU_VALOR
-NEXT_PUBLIC_APP_URL=https://administrativo.clarotechnet.com.br
-SITE_URL=https://administrativo.clarotechnet.com.br
+RH_CONTROL_SUPABASE_URL=https://SEU-PROJETO-EXCLUSIVO.supabase.co
+RH_CONTROL_SUPABASE_PUBLISHABLE_KEY=sb_publishable_SEU_VALOR
+HOSTINGER_FTP_SERVER=servidor-ftp
+HOSTINGER_FTP_USERNAME=usuario-ftp
+HOSTINGER_FTP_PASSWORD=senha-ftp
 ```
 
-No Supabase Auth, configure a URL principal como `https://administrativo.clarotechnet.com.br` e permita o redirecionamento `https://administrativo.clarotechnet.com.br/auth/callback`.
+O workflow publica somente `dist-hostinger/` em `./administrativo/`. Se os secrets `RH_CONTROL_*` ainda não existirem, a publicação é ignorada para impedir que o sistema use por engano o banco de outro produto.
+
+No Supabase Auth, configure a URL principal como `https://administrativo.clarotechnet.com.br` e permita o redirecionamento `https://administrativo.clarotechnet.com.br/auth/callback`. Aplique `supabase/SQL_EDITOR_ALL.sql` em um projeto vazio e publique a função `invite-rh-user` com validação JWT.
 
 Chaves legadas `anon` e `service_role` ainda são aceitas como fallback, mas instalações novas devem usar `publishable` e `secret`.
 
@@ -46,8 +39,10 @@ Chaves legadas `anon` e `service_role` ainda são aceitas como fallback, mas ins
 
 - `npm run dev`: servidor local
 - `npm run build`: build padrão
+- `npm run build:hostinger`: SPA estática para FTP
 - `npm start`: servidor de produção após o build
 - `npm test`: build e testes automatizados
+- `npm run test:hostinger`: valida a saída estática e o `index.html`
 - `npm run lint`: análise estática
 - `npm run db:generate`: gerar migrations do Drizzle
 - `npm run db:migrate`: aplicar migrations via `DATABASE_URL`

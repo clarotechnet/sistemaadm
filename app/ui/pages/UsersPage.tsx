@@ -6,6 +6,7 @@ import type { Role, UserProfile } from "../../../src/types";
 import { EmptyState, StatusBadge } from "../components/Common";
 import { useApp } from "../state/AppContext";
 import { createSupabaseBrowserClient } from "../../../src/lib/supabase/client";
+import { inviteManagedUser, updateManagedUser } from "../../../src/services/browser-backend";
 
 type ProfileRow={id:string;email:string;full_name:string;department:string;job_title:string;role:Role;status:UserProfile["status"]};
 const serialize=(row:ProfileRow):UserProfile=>({id:row.id,name:row.full_name,email:row.email,department:row.department,jobTitle:row.job_title,role:row.role,status:row.status});
@@ -63,10 +64,7 @@ export function UsersPage(){
     const target=users.find(user=>user.id===id);if(!target)return;
     setSavingId(id);
     try{
-      const response=await fetch("/api/users",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({id,...patch})});
-      const data=await response.json() as {error?:string;user?:UserProfile};
-      if(!response.ok){toast("error","Não foi possível atualizar o usuário",data.error??"Tente novamente.");return}
-      const updated=data.user??{...target,...patch};
+      const updated=await updateManagedUser(id,patch);
       setUsers(current=>current.map(user=>user.id===id?updated:user));
       if(patch.status==="BLOQUEADO")setOnlineIds(current=>{const next=new Set(current);next.delete(id);return next});
       addAudit({operation:"Atualizou usuário",module:"Usuários",result:`${target.name}: ${Object.values(patch).join(", ")}`,status:"SUCESSO"});
@@ -75,17 +73,12 @@ export function UsersPage(){
       else if(patch.status==="BLOQUEADO")toast("success","Solicitação recusada",`${target.name} foi movido para recusados.`);
       else if(patch.status==="AGUARDANDO APROVAÇÃO")toast("success","Solicitação reaberta",`${target.name} voltou para pendentes.`);
       else toast("success","Perfil atualizado",`Novo perfil: ${patch.role}.`);
-    }catch{toast("error","Não foi possível atualizar o usuário","Verifique sua conexão e tente novamente.")}
+    }catch(caught){toast("error","Não foi possível atualizar o usuário",caught instanceof Error?caught.message:"Verifique sua conexão e tente novamente.")}
     finally{setSavingId("")}
   };
   const add=async()=>{
     if(!form.name||!form.email){toast("warning","Preencha nome e e-mail");return}
-    const response=await fetch("/api/users",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(form)});
-    const data=await response.json() as {error?:string;user:UserProfile};
-    if(!response.ok){toast("error","Não foi possível adicionar",data.error);return}
-    setUsers(current=>[...current,data.user].sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")));
-    toast("success","Usuário adicionado","A conta ficará aguardando aprovação.");
-    setForm({name:"",email:"",department:"",jobTitle:"",role:"RH"});setFormOpen(false);
+    try{const user=await inviteManagedUser(form);setUsers(current=>[...current,user].sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")));toast("success","Convite enviado","A conta ficará aguardando aprovação.");setForm({name:"",email:"",department:"",jobTitle:"",role:"RH"});setFormOpen(false)}catch(caught){toast("error","Não foi possível adicionar",caught instanceof Error?caught.message:"Tente novamente.")}
   };
 
   const profileCell=(user:UserProfile)=><div className="profile-control"><select value={user.role} onChange={event=>void update(user.id,{role:event.target.value as Role})} disabled={savingId===user.id||(user.id===currentUser.id&&activeAdministrators===1)} aria-label={`Perfil de ${user.name}`}><option>ADMINISTRADOR</option><option>RH</option><option>CONSULTA</option></select>{user.id===currentUser.id&&<small>Seu perfil</small>}{savingId===user.id&&<small>Salvando...</small>}</div>;

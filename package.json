@@ -8,8 +8,10 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
+    "build:hostinger": "vite build --config vite.hostinger.config.ts",
     "start": "vinext start",
     "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/core.test.ts",
+    "test:hostinger": "npm run build:hostinger && node --test tests/hostinger-build.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"

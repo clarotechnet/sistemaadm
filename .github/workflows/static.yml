@@ -1,4 +1,4 @@
-name: Validar aplicação
+name: Validar e publicar RH Control
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   validate:
-    name: Build e testes
+    name: Builds e testes
     runs-on: ubuntu-latest
 
     steps:
@@ -32,3 +32,65 @@ jobs:
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_ci_placeholder' }}
           NEXT_PUBLIC_APP_URL: https://administrativo.clarotechnet.com.br
           SITE_URL: https://administrativo.clarotechnet.com.br
+
+      - name: Validar build estático da Hostinger
+        run: npm run test:hostinger
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+
+  deploy:
+    name: Publicar somente em administrativo
+    needs: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Verificar configuração isolada
+        id: config
+        shell: bash
+        env:
+          RH_URL: ${{ secrets.RH_CONTROL_SUPABASE_URL }}
+          RH_KEY: ${{ secrets.RH_CONTROL_SUPABASE_PUBLISHABLE_KEY }}
+          FTP_SERVER: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+        run: |
+          if [[ -n "$RH_URL" && -n "$RH_KEY" && -n "$FTP_SERVER" && -n "$FTP_USERNAME" && -n "$FTP_PASSWORD" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Publicação aguardando o Supabase exclusivo do RH Control."
+          fi
+
+      - name: Configurar Node.js
+        if: steps.config.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        if: steps.config.outputs.enabled == 'true'
+        run: npm ci
+
+      - name: Gerar index.html e assets
+        if: steps.config.outputs.enabled == 'true'
+        run: npm run build:hostinger
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.RH_CONTROL_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.RH_CONTROL_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Enviar somente para o subdomínio administrativo
+        if: steps.config.outputs.enabled == 'true'
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          local-dir: ./dist-hostinger/
+          server-dir: ./administrativo/

@@ -5,6 +5,7 @@ import { Database, Download, FileArchive, LockKeyhole, Save, ShieldCheck, Trash2
 import type { FileRetentionMode, RawFileUpload, SystemSettings } from "../../../src/types";
 import { formatFileSize } from "../../../src/utils/download";
 import { useApp } from "../state/AppContext";
+import { getRawFileDownloadUrl, listRawFiles, removeRawFile, saveSystemSettings } from "../../../src/services/browser-backend";
 
 const retentionHelp:Record<FileRetentionMode,string>={
   NONE:"O arquivo bruto permanece somente no navegador durante o processamento e não é enviado ao Supabase.",
@@ -23,7 +24,7 @@ export function SettingsPage(){
   const[loadingFiles,setLoadingFiles]=useState(false);
 
   useEffect(()=>{setTolerance(app.settings.financialTolerance.toFixed(2).replace(".",","));setMaskCpf(app.settings.maskCpf);setRetention(app.settings.fileRetention)},[app.settings]);
-  const loadFiles=async()=>{setLoadingFiles(true);try{const response=await fetch("/api/raw-files",{cache:"no-store"});if(!response.ok)return;const data=await response.json() as {files:RawFileUpload[]};setFiles(data.files)}finally{setLoadingFiles(false)}};
+  const loadFiles=async()=>{setLoadingFiles(true);try{setFiles(await listRawFiles())}catch{app.toast("error","Não foi possível consultar os arquivos retidos")}finally{setLoadingFiles(false)}};
   useEffect(()=>{void loadFiles()},[]);
   const save=async()=>{
     if(!canEdit)return;
@@ -32,26 +33,17 @@ export function SettingsPage(){
     setSaving(true);
     try{
       const payload:Partial<SystemSettings>={maskCpf,fileRetention:retention,financialTolerance};
-      const response=await fetch("/api/settings",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
-      const data=await response.json() as {error?:string};
-      if(!response.ok){app.toast("error","Não foi possível salvar",data.error);return}
+      await saveSystemSettings(app.user.id,payload);
       await app.refreshSettings();
       app.addAudit({operation:"Atualizou configurações",module:"Configurações",result:`Tolerância R$ ${financialTolerance.toFixed(2)}; CPF mascarado: ${maskCpf?"sim":"não"}; retenção: ${retention}`,status:"SUCESSO"});
       app.toast("success","Configurações salvas","A política já está valendo para os próximos uploads e tabelas.");
-    }finally{setSaving(false)}
+    }catch(caught){app.toast("error","Não foi possível salvar",caught instanceof Error?caught.message:"Tente novamente.")}finally{setSaving(false)}
   };
   const downloadFile=async(id:string)=>{
-    const response=await fetch(`/api/raw-files?download=${encodeURIComponent(id)}`,{cache:"no-store"});
-    const data=await response.json() as {url?:string;error?:string};
-    if(!response.ok||!data.url){app.toast("error","Não foi possível baixar",data.error);return}
-    window.open(data.url,"_blank","noopener,noreferrer");
+    try{const url=await getRawFileDownloadUrl(id);window.open(url,"_blank","noopener,noreferrer")}catch(caught){app.toast("error","Não foi possível baixar",caught instanceof Error?caught.message:"Tente novamente.")}
   };
   const removeFile=async(id:string)=>{
-    const response=await fetch("/api/raw-files",{method:"DELETE",headers:{"content-type":"application/json"},body:JSON.stringify({id})});
-    if(!response.ok){const data=await response.json() as {error?:string};app.toast("error","Não foi possível excluir",data.error);return}
-    setFiles(current=>current.filter(file=>file.id!==id));
-    app.addAudit({operation:"Excluiu arquivo retido",module:"Privacidade",result:"Cópia privada removida do Storage",status:"SUCESSO"});
-    app.toast("success","Arquivo excluído do armazenamento privado");
+    try{await removeRawFile(id);setFiles(current=>current.filter(file=>file.id!==id));app.addAudit({operation:"Excluiu arquivo retido",module:"Privacidade",result:"Cópia privada removida do Storage",status:"SUCESSO"});app.toast("success","Arquivo excluído do armazenamento privado")}catch(caught){app.toast("error","Não foi possível excluir",caught instanceof Error?caught.message:"Tente novamente.")}
   };
 
   return <>

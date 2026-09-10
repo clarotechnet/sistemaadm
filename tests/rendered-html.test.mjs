@@ -84,14 +84,15 @@ test("notification button opens recent activity and links to history", async () 
 });
 
 test("user roles can be updated with last-admin protection and clear feedback", async () => {
-  const [page, route, migration] = await Promise.all([
+  const [page, route, backend, migration] = await Promise.all([
     readFile(new URL("../app/ui/pages/UsersPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/users/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/services/browser-backend.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/0007_security_hardening.sql", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(page, /disabled=\{user\.id===currentUser\.id\}/);
   assert.match(page, /Novo perfil:/);
-  assert.match(page, /data\.error/);
+  assert.match(backend, /data\.error/);
   assert.match(route, /admin_update_profile/);
   assert.match(migration, /manter pelo menos um administrador ativo/);
   assert.match(migration, /p\.id<>target\.id/);

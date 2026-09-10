@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ActivePayroll, AuditEntry, ComparisonRow, ProcessingSummary, SystemSettings, ToastMessage, UserProfile } from "../../../src/types";
 import { createSupabaseBrowserClient } from "../../../src/lib/supabase/client";
+import { cleanupExpiredRawFiles, loadAuditEntries, loadSystemSettings, storeAuditEntry } from "../../../src/services/browser-backend";
 
 type ComparisonState = { rows: ComparisonRow[]; summary: ProcessingSummary; processedAt: string; fileName: string } | null;
 type AppContextValue = {
@@ -33,8 +34,8 @@ export function AppProvider({ children, user = demoUser }: { children: React.Rea
   const addAudit = useCallback((entry: Omit<AuditEntry, "id" | "timestamp" | "user">) => {
     const complete = { ...entry, id: crypto.randomUUID(), timestamp: new Date().toISOString(), user: user.name };
     setAudits(current => [complete, ...current]);
-    fetch("/api/audit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(complete) }).catch(() => undefined);
-  }, [user.name]);
+    storeAuditEntry(user, complete).catch(() => undefined);
+  }, [user]);
   const setActivePayroll = useCallback((payroll: ActivePayroll | null) => {
     setActivePayrollState(payroll); setHealth(null); setDental(null);
   }, []);
@@ -42,15 +43,12 @@ export function AppProvider({ children, user = demoUser }: { children: React.Rea
   const refreshSettings=useCallback(async()=>{
     setSettingsLoading(true);
     try{
-      const response=await fetch("/api/settings",{cache:"no-store"});
-      if(!response.ok)throw new Error();
-      const data=await response.json() as {settings:SystemSettings};
-      setSettings(data.settings);
+      setSettings(await loadSystemSettings());
     }catch{setSettings(defaultSettings)}finally{setSettingsLoading(false)}
   },[]);
 
   useEffect(()=>{void refreshSettings()},[refreshSettings]);
-  useEffect(()=>{fetch("/api/audit").then(async response=>{if(!response.ok)throw new Error();return await response.json() as {audits:AuditEntry[]}}).then(data=>setAudits(data.audits)).catch(()=>undefined)},[]);
+  useEffect(()=>{loadAuditEntries().then(setAudits).catch(()=>undefined)},[]);
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     let stopped = false;
@@ -68,7 +66,7 @@ export function AppProvider({ children, user = demoUser }: { children: React.Rea
     };
   }, [user.id]);
   useEffect(()=>{
-    const cleanup=()=>fetch("/api/raw-files/cleanup",{method:"POST"}).catch(()=>undefined);
+    const cleanup=()=>cleanupExpiredRawFiles().catch(()=>undefined);
     void cleanup();
     const timer=window.setInterval(cleanup,15*60*1000);
     return()=>window.clearInterval(timer);

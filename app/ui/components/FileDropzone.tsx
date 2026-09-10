@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { FileSpreadsheet, FileText, LockKeyhole, UploadCloud, X } from "lucide-react";
 import { formatFileSize } from "../../../src/utils/download";
 import { useApp } from "../state/AppContext";
+import { retainRawFile } from "../../../src/services/browser-backend";
 
 export function FileDropzone({ accept, multiple = false, files, onFiles, label = "Arraste os arquivos para cá", hint = "ou clique para selecionar" }: { accept: string; multiple?: boolean; files: File[]; onFiles: (files: File[]) => void; label?: string; hint?: string }) {
   const app=useApp();
@@ -18,9 +19,7 @@ export function FileDropzone({ accept, multiple = false, files, onFiles, label =
     let stored=0;
     try{
       for(const file of incoming){
-        const body=new FormData();body.append("file",file);body.append("optIn",storeSecure?"true":"false");
-        const response=await fetch("/api/raw-files",{method:"POST",body});
-        if(!response.ok){const data=await response.json() as {error?:string};app.toast("warning",`Arquivo processável, mas não retido: ${file.name}`,data.error);continue}
+        try{await retainRawFile(app.user,file,storeSecure)}catch(caught){app.toast("warning",`Arquivo processável, mas não retido: ${file.name}`,caught instanceof Error?caught.message:"Falha no armazenamento privado.");continue}
         stored++;
       }
       if(stored)app.toast("success",retention==="24_HOURS"?"Cópia privada temporária criada":"Cópia privada armazenada",retention==="24_HOURS"?`${stored} arquivo(s) serão excluídos após 24 horas.`:`${stored} arquivo(s) foram armazenados no Storage privado.`);
