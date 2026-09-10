@@ -52,17 +52,18 @@ jobs:
         id: config
         shell: bash
         env:
-          RH_URL: ${{ secrets.RH_CONTROL_SUPABASE_URL }}
-          RH_KEY: ${{ secrets.RH_CONTROL_SUPABASE_PUBLISHABLE_KEY }}
+          RH_URL: ${{ secrets.RH_CONTROL_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+          RH_KEY: ${{ secrets.RH_CONTROL_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
           FTP_SERVER: ${{ secrets.HOSTINGER_FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.HOSTINGER_FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
         run: |
-          if [[ -n "$RH_URL" && -n "$RH_KEY" && -n "$FTP_SERVER" && -n "$FTP_USERNAME" && -n "$FTP_PASSWORD" ]]; then
+          EXPECTED_URL="https://kdbnheeosaptxpwkmjbz.supabase.co"
+          if [[ "${RH_URL%/}" == "$EXPECTED_URL" && -n "$RH_KEY" && -n "$FTP_SERVER" && -n "$FTP_USERNAME" && -n "$FTP_PASSWORD" ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Publicação aguardando o Supabase exclusivo do RH Control."
+            echo "Publicação bloqueada: confira os secrets FTP e o projeto Supabase exclusivo do RH Control."
           fi
 
       - name: Configurar Node.js
@@ -80,8 +81,8 @@ jobs:
         if: steps.config.outputs.enabled == 'true'
         run: npm run build:hostinger
         env:
-          VITE_SUPABASE_URL: ${{ secrets.RH_CONTROL_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.RH_CONTROL_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.RH_CONTROL_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.RH_CONTROL_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Enviar somente para o subdomínio administrativo
         if: steps.config.outputs.enabled == 'true'
