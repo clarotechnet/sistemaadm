@@ -56,7 +56,7 @@ export function detectColumns(headers: string[], aliases: string[], options: { a
 export async function exportComparisonExcel(rows: ComparisonRow[], fileName: string, valueLabel: string) {
   const XLSX = await import("xlsx");
   const workbook = XLSX.utils.book_new();
-  workbook.Props = { Author: "RH Control", Company: "TechNET" };
+  workbook.Props = { Author: "RH Controle", Company: "TechNET" };
   const headers = ["Nome", "CPF", `${valueLabel} Folha`, "Valor Referência", "Diferença", "Líquido", "Qtd. Colunas", "Status"];
   const addSheet = (name: string, values: ComparisonRow[]) => {
     const data = values.map(value => [value.name, value.cpf, value.payrollValue, value.referenceValue, value.difference, value.liquid, value.columnCount, value.status]);

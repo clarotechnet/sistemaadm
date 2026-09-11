@@ -12,7 +12,7 @@ import { loadCurrentProfile } from "../services/browser-backend";
 import { decideAuthSessionEvent } from "./auth-session";
 
 function LoadingScreen() {
-  return <main className="registration-page"><section className="registration-card"><h1>RH Control</h1><p>Carregando ambiente seguro...</p></section></main>;
+  return <main className="registration-page"><section className="registration-card"><h1>RH Controle</h1><p>Carregando ambiente seguro...</p></section></main>;
 }
 
 function routeFromLocation() {
