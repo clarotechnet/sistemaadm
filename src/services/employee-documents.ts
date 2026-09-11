@@ -63,16 +63,16 @@ export async function listEmployees(): Promise<Employee[]> {
 }
 
 export async function saveEmployee(
-  payload: { name: string; cpf: string; registration: string; department: string; jobTitle: string; status: EmployeeStatus },
+  payload: { name: string; cpf: string; department: string; status: EmployeeStatus },
   employeeId?: string,
 ): Promise<Employee> {
   const cpf = normalizeCpf(payload.cpf);
-  if (!isValidCpf(cpf)) throw new Error("Informe um CPF válido para o funcionário.");
   if (payload.name.trim().length < 2) throw new Error("Informe o nome completo do funcionário.");
+  if (!isValidCpf(cpf)) throw new Error("Informe um CPF válido para o funcionário.");
+  if (payload.department.trim().length < 2) throw new Error("Informe o setor do funcionário.");
   const supabase = createSupabaseBrowserClient();
   const values = {
-    full_name: payload.name.trim(), cpf, registration: payload.registration.trim(), department: payload.department.trim(),
-    job_title: payload.jobTitle.trim(), status: payload.status,
+    full_name: payload.name.trim(), cpf, department: payload.department.trim(), status: payload.status,
   };
   const request = employeeId
     ? supabase.from("employees").update(values).eq("id", employeeId)

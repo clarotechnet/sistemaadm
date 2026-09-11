@@ -77,9 +77,9 @@ test("notification button opens recent activity and links to history", async () 
   const shell = await readFile(new URL("../app/ui/components/AppShell.tsx", import.meta.url), "utf8");
   assert.match(shell, /setNotificationsOpen\(value => !value\)/);
   assert.match(shell, /notification-menu/);
-  assert.match(shell, /visibleNotifications\.slice\(0,5\)/);
+  assert.match(shell, /visibleNotifications\.slice\(0,\s*5\)/);
   assert.match(shell, /notification-clear/);
-  assert.match(shell, /localStorage\.setItem\(notificationStorageKey,clearedAt\)/);
+  assert.match(shell, /localStorage\.setItem\(notificationStorageKey,\s*clearedAt\)/);
   assert.match(shell, /navigate\("history"\)/);
 });
 
@@ -136,6 +136,20 @@ test("provides a private employee-document center with monthly audit packages", 
   assert.match(migration, /public\.is_rh_or_admin\(\)/);
   assert.match(migration, /public\.is_admin\(\)/);
   assert.doesNotMatch(migration, /service_role/);
+});
+
+test("keeps the documents route available and employee registration minimal", async () => {
+  const [route, page, service] = await Promise.all([
+    readFile(new URL("../app/[section]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui/pages/EmployeeDocumentsPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/services/employee-documents.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /"payroll","documents","pdfs"/);
+  assert.match(route, /"payroll","documents","pdfs","reports","history"/);
+  assert.doesNotMatch(page, /<span>Matrícula<\/span>/);
+  assert.doesNotMatch(page, /<span>Cargo<\/span>/);
+  assert.doesNotMatch(service, /payload\.registration/);
+  assert.doesNotMatch(service, /payload\.jobTitle/);
 });
 
 test("adds local batch PDF compression and compact ZIP workflows", async () => {
