@@ -199,7 +199,7 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
       <section className="editor-workspace">
         {textHint&&<div className={`edit-text-hint ${textScanState}`}>{textHint}</div>}
         <div className={`pdf-stage tool-${tool}`} ref={stage} style={{width:`${zoom}%`}} onPointerDown={pointer} onPointerUp={pointer}>
-          {active&&<PdfCanvas file={active.file} pageNumber={active.page+1} scale={1.35} className="main-pdf-canvas"/>}
+          {active&&<PdfCanvas file={active.file} pageNumber={active.page+1} scale={1.35*(zoom/100)} className="main-pdf-canvas"/>}
           <div className="overlay-layer">{currentOverlays.map(overlay=><button key={overlay.id} className={`pdf-overlay ${overlay.type} ${selected===overlay.id?"selected":""}`} style={{left:`${overlay.x*100}%`,top:`${overlay.y*100}%`,width:`${overlay.width*100}%`,height:`${overlay.height*100}%`,borderColor:overlay.color,color:overlay.color,fontSize:`${overlay.fontSize??12}px`,fontWeight:overlay.bold?700:400}} onPointerDown={event=>{if(tool==="select"){event.stopPropagation();setSelected(overlay.id)}}} aria-label={overlay.type==="text"?`Texto: ${overlay.text}`:"Elemento do PDF"}>{overlay.type==="text"?overlay.text:""}</button>)}</div>
           {tool==="editText"&&<div className="pdf-text-selection-layer">{textItems.map(item=><button key={item.id} className="pdf-text-hitbox" style={{left:`${item.x*100}%`,top:`${item.y*100}%`,width:`${item.width*100}%`,height:`${item.height*100}%`}} onPointerDown={event=>event.stopPropagation()} onClick={()=>replaceTextItem(item)} aria-label={`Editar texto: ${item.text}`} title={`Editar: ${item.text}`}/>)}</div>}
         </div>
