@@ -1,16 +1,32 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, FileText, HeartPulse, Stethoscope, TriangleAlert, Upload, UsersRound } from "lucide-react";
 import { formatMoney } from "../../../src/utils/money";
 import { useApp } from "../state/AppContext";
 import { MetricCard } from "../components/Common";
 import type { AppRoute } from "../components/AppShell";
 
+function greetingForHour(hour: number) {
+  if (hour >= 5 && hour < 12) return "Bom dia";
+  if (hour >= 12 && hour < 18) return "Boa tarde";
+  return "Boa noite";
+}
+
 export function DashboardPage({ navigate }: { navigate: (route: AppRoute) => void }) {
   const { user, activePayroll, health, dental, audits } = useApp();
   const firstName = user.name.split(" ")[0];
+  const [greeting, setGreeting] = useState(() => greetingForHour(new Date().getHours()));
+
+  useEffect(() => {
+    const updateGreeting = () => setGreeting(greetingForHour(new Date().getHours()));
+    updateGreeting();
+    const timer = window.setInterval(updateGreeting, 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return <>
-    <div className="page-heading"><div><h2>Bom dia, {firstName}.</h2><p>Acompanhe os processamentos e pendências da competência atual.</p></div><button className="button primary" onClick={() => navigate("payroll")}><Upload size={16} /> Nova importação</button></div>
+    <div className="page-heading"><div><h2>{greeting}, {firstName}.</h2><p>Acompanhe os processamentos e pendências da competência atual.</p></div><button className="button primary" onClick={() => navigate("payroll")}><Upload size={16} /> Nova importação</button></div>
     {activePayroll ? <button className="active-file-banner" onClick={() => navigate("payroll")}><span className="document-icon">XLS</span><span><small>FOLHA ATIVA · {activePayroll.competence}</small><strong>{activePayroll.fileName}</strong><em>Importada em {new Date(activePayroll.importedAt).toLocaleString("pt-BR")} por {activePayroll.importedBy}</em></span><span className="status-badge success">Ativa</span><span className="button secondary">Ver folha</span></button> : <button className="active-file-banner empty" onClick={() => navigate("payroll")}><Upload /><span><strong>Nenhuma folha ativa</strong><em>Importe a Folha de Pagamento para iniciar as conferências.</em></span><span className="button primary">Importar folha</span></button>}
     <div className="metrics-grid">
       <MetricCard label="COLABORADORES" value={activePayroll?.records.length ?? 0} detail="na folha ativa" />
@@ -33,3 +49,4 @@ function OverviewItem({ icon, label, state }: { icon: React.ReactNode; label: st
   const percentage = state && state.summary.total ? Math.round(state.summary.ok / state.summary.total * 100) : 0;
   return <div><span className="overview-icon">{icon}</span><span><strong>{label}</strong><small>{state ? `${state.summary.ok} corretos · ${state.summary.divergent} divergentes · diferença ${formatMoney(state.summary.differenceTotal)}` : "Processamento ainda não iniciado"}</small></span><div className="overview-progress"><i style={{ width: `${percentage}%` }} /></div><b>{state ? `${percentage}%` : "—"}</b></div>;
 }
+

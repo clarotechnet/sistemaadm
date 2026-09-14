@@ -70,7 +70,7 @@ export async function loadPdfJs() {
   const pdfjs = await import("pdfjs-dist");
   // Keep the worker on the same origin. Resolving it from import.meta.url makes
   // server builds emit a file:/// URL, which browsers cannot fetch in Sites.
-  pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+  pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
   return pdfjs;
 }
 
