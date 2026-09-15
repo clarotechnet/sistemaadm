@@ -205,7 +205,10 @@ export async function extractPdfText(file: File): Promise<{ pageCount:number; pa
   return {pageCount:document.numPages,pages};
 }
 
-export type PdfTextItem = { id:string;text:string;x:number;y:number;width:number;height:number;fontSize:number };
+export type PdfFontFamily = "Helvetica"|"TimesRoman"|"Courier";
+export type PdfTextItem = { id:string;text:string;x:number;y:number;width:number;height:number;fontSize:number;fontFamily:PdfFontFamily;bold:boolean };
+function detectPdfFontFamily(fontName:string,fontFamily?:string):PdfFontFamily{const value=`${fontName} ${fontFamily??""}`.toLowerCase();if(/times/.test(value)||(/serif/.test(value)&&!/sans/.test(value)))return "TimesRoman";if(/courier|mono/.test(value))return "Courier";return "Helvetica";}
+function detectPdfBold(fontName:string,fontFamily?:string){return /bold|black|semibold|demi|heavy/.test(`${fontName} ${fontFamily??""}`.toLowerCase());}
 const clampUnit=(value:number)=>Math.min(1,Math.max(0,value));
 export async function extractPdfTextItems(file: File, pageNumber: number):Promise<PdfTextItem[]> {
   const pdfjs=await loadPdfJs();
@@ -223,15 +226,58 @@ export async function extractPdfTextItems(file: File, pageNumber: number):Promis
     const y=clampUnit((transform[5]-ascent)/viewport.height);
     const width=clampUnit(Math.max(item.width*viewport.scale,1)/viewport.width);
     const height=clampUnit(Math.max(fontHeight,1)/viewport.height);
-    return [{id:`${pageNumber}-${index}`,text:item.str,x,y,width:Math.min(width,1-x),height:Math.min(height,1-y),fontSize:Math.max(6,Math.round(fontHeight))}];
+    return [{id:`${pageNumber}-${index}`,text:item.str,x,y,width:Math.min(width,1-x),height:Math.min(height,1-y),fontSize:Math.max(6,Math.round(fontHeight)),fontFamily:detectPdfFontFamily(item.fontName,style?.fontFamily),bold:detectPdfBold(item.fontName,style?.fontFamily)}];
   });
 }
 
-export type PdfOverlay = { id:string; groupId?:string; page:number; type:"text"|"erase"|"rect"; x:number;y:number;width:number;height:number;text?:string;fontSize?:number;color?:string;bold?:boolean;coverBackground?:boolean };
+export async function samplePdfTextColor(file: File, pageNumber: number, item: PdfTextItem):Promise<string|null> {
+  const pdfjs=await loadPdfJs();
+  const loadingTask=pdfjs.getDocument({data:await file.arrayBuffer()});
+  try{
+    const document=await loadingTask.promise;
+    const page=await document.getPage(pageNumber+1);
+    const viewport=page.getViewport({scale:2.4});
+    const canvas=window.document.createElement("canvas");
+    canvas.width=Math.max(1,Math.ceil(viewport.width));
+    canvas.height=Math.max(1,Math.ceil(viewport.height));
+    const context=canvas.getContext("2d",{alpha:false});
+    if(!context)return null;
+    context.fillStyle="#fff";
+    context.fillRect(0,0,canvas.width,canvas.height);
+    await page.render({canvasContext:context,viewport,canvas}).promise;
+    const pad=Math.max(2,Math.round(item.fontSize*.25*viewport.scale));
+    const sx=Math.max(0,Math.floor(item.x*canvas.width)-pad);
+    const sy=Math.max(0,Math.floor(item.y*canvas.height)-pad);
+    const sw=Math.min(canvas.width-sx,Math.max(1,Math.ceil(item.width*canvas.width)+pad*2));
+    const sh=Math.min(canvas.height-sy,Math.max(1,Math.ceil(item.height*canvas.height)+pad*2));
+    const pixels=context.getImageData(sx,sy,sw,sh).data;
+    const buckets=new Map<string,{score:number;count:number;r:number;g:number;b:number}>();
+    for(let index=0;index<pixels.length;index+=4){
+      const r=pixels[index],g=pixels[index+1],b=pixels[index+2],a=pixels[index+3];
+      if(a<80||r>245&&g>245&&b>245)continue;
+      const max=Math.max(r,g,b),min=Math.min(r,g,b),saturation=max-min;
+      const brightness=(r+g+b)/3;
+      if(saturation<10&&brightness>215)continue;
+      const qr=Math.round(r/32),qg=Math.round(g/32),qb=Math.round(b/32);
+      const key=`${qr}:${qg}:${qb}`;
+      const current=buckets.get(key)??{score:0,count:0,r:0,g:0,b:0};
+      const colorBonus=1+saturation/150;
+      current.score+=colorBonus;
+      current.count+=1;current.r+=r;current.g+=g;current.b+=b;
+      buckets.set(key,current);
+    }
+    const winner=[...buckets.values()].sort((a,b)=>b.score-a.score)[0];
+    if(!winner||winner.count<2)return null;
+    const hex=(value:number)=>Math.round(value).toString(16).padStart(2,"0");
+    return `#${hex(winner.r/winner.count)}${hex(winner.g/winner.count)}${hex(winner.b/winner.count)}`;
+  }finally{await loadingTask.destroy();}
+}
+
+export type PdfOverlay = { id:string; groupId?:string; page:number; type:"text"|"erase"|"rect"; x:number;y:number;width:number;height:number;text?:string;fontSize?:number;fontFamily?:PdfFontFamily;color?:string;bold?:boolean;coverBackground?:boolean };
 function hexToRgb(hex="#1f1f1f"){const clean=hex.replace("#","");return [Number.parseInt(clean.slice(0,2),16)/255,Number.parseInt(clean.slice(2,4),16)/255,Number.parseInt(clean.slice(4,6),16)/255] as const;}
 export async function applyPdfEdits(file: File, overlays: PdfOverlay[]) {
-  const pdf=await PDFDocument.load(await file.arrayBuffer(),{ignoreEncryption:true});const regular=await pdf.embedFont(StandardFonts.Helvetica);const bold=await pdf.embedFont(StandardFonts.HelveticaBold);
-  for(const overlay of overlays){const page=pdf.getPage(overlay.page);const{width,height}=page.getSize();const x=overlay.x*width;const y=height-(overlay.y+overlay.height)*height;const w=overlay.width*width;const h=overlay.height*height;if(overlay.type==="erase")page.drawRectangle({x,y,width:w,height:h,color:rgb(1,1,1)});else if(overlay.type==="rect")page.drawRectangle({x,y,width:w,height:h,borderColor:rgb(...hexToRgb(overlay.color)),borderWidth:1.2,opacity:0,borderOpacity:1});else{if(overlay.coverBackground!==false)page.drawRectangle({x,y,width:w,height:h,color:rgb(1,1,1)});page.drawText(overlay.text??"",{x:x+2,y:y+Math.max(2,h-(overlay.fontSize??12)-2),size:overlay.fontSize??12,font:overlay.bold?bold:regular,color:rgb(...hexToRgb(overlay.color))});}}
+  const pdf=await PDFDocument.load(await file.arrayBuffer(),{ignoreEncryption:true});const fonts={Helvetica:{regular:await pdf.embedFont(StandardFonts.Helvetica),bold:await pdf.embedFont(StandardFonts.HelveticaBold)},TimesRoman:{regular:await pdf.embedFont(StandardFonts.TimesRoman),bold:await pdf.embedFont(StandardFonts.TimesRomanBold)},Courier:{regular:await pdf.embedFont(StandardFonts.Courier),bold:await pdf.embedFont(StandardFonts.CourierBold)}};
+  for(const overlay of overlays){const page=pdf.getPage(overlay.page);const{width,height}=page.getSize();const x=overlay.x*width;const y=height-(overlay.y+overlay.height)*height;const w=overlay.width*width;const h=overlay.height*height;if(overlay.type==="erase")page.drawRectangle({x,y,width:w,height:h,color:rgb(1,1,1)});else if(overlay.type==="rect")page.drawRectangle({x,y,width:w,height:h,borderColor:rgb(...hexToRgb(overlay.color)),borderWidth:1.2,opacity:0,borderOpacity:1});else{if(overlay.coverBackground!==false)page.drawRectangle({x,y,width:w,height:h,color:rgb(1,1,1)});page.drawText(overlay.text??"",{x:x+2,y:y+Math.max(2,h-(overlay.fontSize??12)-2),size:overlay.fontSize??12,font:fonts[overlay.fontFamily??"Helvetica"][overlay.bold?"bold":"regular"],color:rgb(...hexToRgb(overlay.color))});}}
   return pdf.save();
 }
 

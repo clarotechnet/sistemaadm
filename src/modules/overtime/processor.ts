@@ -7,11 +7,16 @@ import { downloadFile } from "../../utils/download";
 
 export type OvertimeRecord = { name:string; hours:Record<string,string> };
 export type OvertimeMatch = { id:string; file:File; pdfName:string; excelName:string|null; hours:Record<string,string>; matchType:"EXATA"|"APROXIMADA"|"NÃO LOCALIZADO"; similarity:number; approved:boolean };
-const hourAliases=["H EX 50%","H EX 60%","H EX 70%","H EX 100%"];
+const hourAliases:Record<string,string[]>={
+  "H EX 50%":["H EX 50%","H EX 50","H EXTRA 50%","H EXTRAS 50%","HE 50%"],
+  "H EX 60%":["H EX 60%","H EX 60","H EXTRA 60%","H EXTRAS 60%","HE 60%"],
+  "H EX 70%":["H EX 70%","H EX 70","H EXTRA 70%","H EXTRAS 70%","HE 70%"],
+  "H EX 100%":["H EX 100%","H EX 100","H EXTRA 100%","H EXTRAS 100%","HE 100%"],
+};
 
 export function parseOvertimeWorkbook(workbook:ParsedWorkbook):{records:OvertimeRecord[];columns:string[]}{
   const records:OvertimeRecord[]=[];const columns=new Set<string>();
-  for(const sheet of workbook.sheets){const nameIndex=detectColumns(sheet.headers,["COLABORADOR","NOME","FUNCIONARIO"])[0];if(nameIndex===undefined)continue;const hourIndexes=hourAliases.flatMap(alias=>{const index=detectColumns(sheet.headers,[alias])[0];return index===undefined?[]:[{alias,index}]});hourIndexes.forEach(item=>columns.add(item.alias));for(const row of sheet.rows){const name=String(row[nameIndex]??"").trim();if(!name)continue;const hours:Object=Object.fromEntries(hourIndexes.map(({alias,index})=>[alias,formatHours(row[index])]));records.push({name,hours:hours as Record<string,string>});}}
+  for(const sheet of workbook.sheets){const nameIndex=detectColumns(sheet.headers,["COLABORADOR","NOME","FUNCIONARIO"])[0];if(nameIndex===undefined)continue;const hourIndexes=Object.entries(hourAliases).flatMap(([alias,aliases])=>{const index=detectColumns(sheet.headers,aliases)[0];return index===undefined?[]:[{alias,index}]});hourIndexes.forEach(item=>columns.add(item.alias));for(const row of sheet.rows){const name=String(row[nameIndex]??"").trim();const normalizedName=normalizeText(name);if(!name||["COLABORADOR","NOME","FUNCIONARIO"].includes(normalizedName))continue;const hours:Object=Object.fromEntries(hourIndexes.map(({alias,index})=>[alias,formatHours(row[index])]));records.push({name,hours:hours as Record<string,string>});}}
   if(!records.length)throw new Error("Nenhuma coluna COLABORADOR/NOME foi encontrada no Excel.");if(!columns.size)throw new Error("O Excel não possui nenhuma coluna de horas extras reconhecida (50%, 60%, 70% ou 100%).");return{records,columns:[...columns]};
 }
 

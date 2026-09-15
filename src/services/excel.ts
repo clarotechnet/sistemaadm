@@ -1,10 +1,15 @@
 import type { ComparisonRow, ParsedSheet, ParsedWorkbook } from "../types";
 import { normalizeHeader } from "../utils/text";
 
-const HEADER_HINTS = ["CPF", "NOME", "COLABORADOR", "LIQUIDO", "PLANO", "FOLHA", "VALOR", "COMPETENCIA"];
+const HEADER_HINTS = ["CPF", "NOME", "COLABORADOR", "FUNCIONARIO", "LIQUIDO", "PLANO", "FOLHA", "VALOR", "COMPETENCIA"];
+const OVERTIME_PERCENTAGES = ["50%", "60%", "70%", "100%"];
 
 export async function readExcel(file: File): Promise<ParsedWorkbook> {
   const XLSX = await import("xlsx");
+  if (/\.xls$/i.test(file.name)) {
+    const cptable = await import("xlsx/dist/cpexcel");
+    XLSX.set_cptable(cptable);
+  }
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true, codepage: 1252, raw: true });
   const sheets: ParsedSheet[] = [];
@@ -35,8 +40,11 @@ export function findHeaderRow(rows: unknown[][], maxRows = 35): number {
   rows.slice(0, maxRows).forEach((row, index) => {
     const headers = row.map(normalizeHeader).filter(Boolean);
     const matches = HEADER_HINTS.filter(hint => headers.some(header => header === hint || header.includes(hint))).length;
-    const score = matches * 4 + Math.min(headers.length, 12) * 0.15;
-    if (score > best.score && matches >= 2) best = { row: index, score };
+    const hasPerson = headers.some(header => ["NOME", "COLABORADOR", "FUNCIONARIO"].some(alias => header === alias || header.includes(alias)));
+    const overtimeMatches = OVERTIME_PERCENTAGES.filter(percent => headers.some(header => header.includes(percent) && (header.includes("H EX") || header.includes("EXTRA") || header.includes("HE ")))).length;
+    const overtimeHeader = hasPerson && overtimeMatches >= 1;
+    const score = matches * 4 + overtimeMatches * 5 + Math.min(headers.length, 12) * 0.15;
+    if (score > best.score && (matches >= 2 || overtimeHeader)) best = { row: index, score };
   });
   return best.row;
 }

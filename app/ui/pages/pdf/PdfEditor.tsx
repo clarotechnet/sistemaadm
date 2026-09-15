@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bold, Download, Eraser, FileDown, MousePointer2, Redo2, RectangleHorizontal, RotateCcw, Trash2, Type, Undo2, X, ZoomIn, ZoomOut } from "lucide-react";
-import { downloadEditedPdfs, extractPdfTextItems, loadPdfJs, type PdfOverlay, type PdfTextItem } from "../../../../src/services/pdf";
+import { Bold, Download, Eraser, FileDown, MousePointer2, Paintbrush, Redo2, RectangleHorizontal, RotateCcw, Trash2, Type, Undo2, X, ZoomIn, ZoomOut } from "lucide-react";
+import { downloadEditedPdfs, extractPdfTextItems, loadPdfJs, samplePdfTextColor, type PdfFontFamily, type PdfOverlay, type PdfTextItem } from "../../../../src/services/pdf";
 import { FileDropzone } from "../../components/FileDropzone";
 import { PdfCanvas } from "../../components/PdfCanvas";
 import { useApp } from "../../state/AppContext";
 
-type Tool="select"|"text"|"editText"|"erase"|"rect";
+type Tool="select"|"text"|"editText"|"copyFormat"|"erase"|"rect";
 type EditorDoc={id:string;file:File;pageCount:number;page:number;past:PdfOverlay[][];present:PdfOverlay[];future:PdfOverlay[][]};
 type TextScanState="idle"|"loading"|"ready"|"empty"|"error";
 const FONT_SIZES=[8,9,10,11,12,14,16,18,24,32];
@@ -20,6 +20,7 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
   const[zoom,setZoom]=useState(80);
   const[text,setText]=useState("Novo texto");
   const[fontSize,setFontSize]=useState(12);
+  const[fontFamily,setFontFamily]=useState<PdfFontFamily>("Helvetica");
   const[color,setColor]=useState("#1f1f1f");
   const[bold,setBold]=useState(false);
   const[selected,setSelected]=useState("");
@@ -67,7 +68,7 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
 
   useEffect(()=>{
     let cancelled=false;
-    if(tool!=="editText"||!active)return;
+    if((tool!=="editText"&&tool!=="copyFormat")||!active)return;
     Promise.resolve().then(()=>{
       if(cancelled)return [];
       setTextItems([]);
@@ -82,12 +83,12 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
   },[tool,active]);
 
   const pointer=(event:React.PointerEvent<HTMLDivElement>)=>{
-    if(!active||!stage.current||tool==="select"||tool==="editText")return;
+    if(!active||!stage.current||tool==="select"||tool==="editText"||tool==="copyFormat")return;
     const rect=stage.current.getBoundingClientRect();
     const point={x:(event.clientX-rect.left)/rect.width,y:(event.clientY-rect.top)/rect.height};
     if(event.type==="pointerdown"){
       if(tool==="text"){
-        const overlay:PdfOverlay={id:crypto.randomUUID(),page:active.page,type:"text",x:point.x,y:point.y,width:.25,height:.055,text,fontSize,color,bold,coverBackground:false};
+        const overlay:PdfOverlay={id:crypto.randomUUID(),page:active.page,type:"text",x:point.x,y:point.y,width:.25,height:.055,text,fontSize,fontFamily,color,bold,coverBackground:false};
         commit([...active.present,overlay]);
         setSelected(overlay.id);
         setTool("select");
@@ -111,10 +112,12 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
     const height=Math.min(1-y,item.height+paddingY*2);
     const size=Math.max(8,Math.min(32,item.fontSize));
     const erase:PdfOverlay={id:crypto.randomUUID(),groupId,page:active.page,type:"erase",x,y,width,height};
-    const replacement:PdfOverlay={id:crypto.randomUUID(),groupId,page:active.page,type:"text",x:item.x,y:item.y,width:Math.max(item.width,.02),height:item.height,text:item.text,fontSize:size,color,bold,coverBackground:false};
+    const replacement:PdfOverlay={id:crypto.randomUUID(),groupId,page:active.page,type:"text",x:item.x,y:item.y,width:Math.max(item.width,.02),height:item.height,text:item.text,fontSize:size,fontFamily:item.fontFamily,color,bold:item.bold,coverBackground:false};
     commit([...active.present,erase,replacement]);
     setText(item.text);
     setFontSize(size);
+    setFontFamily(item.fontFamily);
+    setBold(item.bold);
     setSelected(replacement.id);
     setTool("select");
     window.setTimeout(()=>document.querySelector<HTMLInputElement>("[data-editor-text-input]")?.select(),0);
@@ -125,7 +128,28 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
   const updateSelected=(patch:Partial<PdfOverlay>)=>{if(!active||!selected)return;commit(active.present.map(item=>item.id===selected?{...item,...patch}:item))};
   const currentText=selectedOverlay?.type==="text"?selectedOverlay.text??"":text;
   const currentFontSize=selectedOverlay?.type==="text"?selectedOverlay.fontSize??fontSize:fontSize;
+  const currentFontFamily=selectedOverlay?.type==="text"?selectedOverlay.fontFamily??fontFamily:fontFamily;
   const sizeOptions=Array.from(new Set([...FONT_SIZES,currentFontSize])).sort((a,b)=>a-b);
+
+  const startCopyFormat=()=>{
+    if(selectedOverlay?.type!=="text"){app.toast("warning","Selecione o texto editado","Clique primeiro no texto que receberá a formatação.");return;}
+    setTool("copyFormat");
+  };
+
+  const copyFormatFromItem=async(item:PdfTextItem)=>{
+    if(!active||selectedOverlay?.type!=="text")return;
+    const size=Math.max(6,Math.min(32,item.fontSize));
+    let detectedColor:string|null=null;
+    try{detectedColor=await samplePdfTextColor(active.file,active.page,item)}catch{detectedColor=null}
+    updateSelected({fontSize:size,fontFamily:item.fontFamily,bold:item.bold,...(detectedColor?{color:detectedColor}:{})});
+    setFontSize(size);
+    setFontFamily(item.fontFamily);
+    setBold(item.bold);
+    if(detectedColor)setColor(detectedColor);
+    setTool("select");
+    const family=item.fontFamily==="TimesRoman"?"Times":item.fontFamily;
+    app.toast("success","Formatação copiada",`${size} pt · ${family} · ${item.bold?"negrito":"regular"}${detectedColor?` · ${detectedColor}`:""}`);
+  };
 
   const download=async(all:boolean)=>{
     if(!active)return;
@@ -158,7 +182,7 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
     <section className="surface import-surface"><div className="import-form"><FileDropzone accept=".pdf" multiple files={[]} onFiles={addFiles}/></div></section>
   </>;
 
-  const textHint=tool==="editText"?(textScanState==="loading"?"Detectando os textos desta página...":textScanState==="empty"?"Nenhum texto selecionável foi encontrado. Este PDF pode ser uma imagem digitalizada.":textScanState==="error"?"Não foi possível detectar o texto desta página.":"Clique exatamente sobre o texto que deseja substituir."):"";
+  const textHint=tool==="editText"?(textScanState==="loading"?"Detectando os textos desta página...":textScanState==="empty"?"Nenhum texto selecionável foi encontrado. Este PDF pode ser uma imagem digitalizada.":textScanState==="error"?"Não foi possível detectar o texto desta página.":"Clique exatamente sobre o texto que deseja substituir."):tool==="copyFormat"?(textScanState==="loading"?"Lendo a formatação dos textos...":textScanState==="empty"?"Nenhum texto original foi detectado nesta página.":textScanState==="error"?"Não foi possível ler a formatação desta página.":"Clique em um texto original para aplicar seu formato ao texto selecionado."):"";
 
   return <div className="pdf-editor">
     <div className="editor-heading">
@@ -175,12 +199,14 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
         <ToolButton active={tool==="select"} label="Selecionar" onClick={()=>setTool("select")} icon={<MousePointer2/>}/>
         <ToolButton active={tool==="text"} label="Adicionar texto" onClick={()=>setTool("text")} icon={<Type/>}/>
         <ToolButton active={tool==="editText"} label="Editar texto" onClick={()=>setTool("editText")} icon={<RotateCcw/>}/>
+        <ToolButton active={tool==="copyFormat"} label="Copiar formato" onClick={startCopyFormat} icon={<Paintbrush/>}/>
         <ToolButton active={tool==="erase"} label="Apagar área" onClick={()=>setTool("erase")} icon={<Eraser/>}/>
         <ToolButton active={tool==="rect"} label="Retângulo" onClick={()=>setTool("rect")} icon={<RectangleHorizontal/>}/>
       </div>
       <div className="tool-options">
         <input className="toolbar-text" value={currentText} onChange={event=>selectedOverlay?.type==="text"?updateSelected({text:event.target.value}):setText(event.target.value)} aria-label="Texto a inserir"/>
         <select value={currentFontSize} onChange={event=>{const value=Number(event.target.value);setFontSize(value);if(selectedOverlay?.type==="text")updateSelected({fontSize:value})}}>{sizeOptions.map(value=><option key={value}>{value}</option>)}</select>
+        <select value={currentFontFamily} onChange={event=>{const value=event.target.value as PdfFontFamily;setFontFamily(value);if(selectedOverlay?.type==="text")updateSelected({fontFamily:value})}} aria-label="Fonte"><option value="Helvetica">Helvetica</option><option value="TimesRoman">Times</option><option value="Courier">Courier</option></select>
         <input type="color" value={selectedOverlay?.type==="text"?selectedOverlay.color??color:color} onChange={event=>{setColor(event.target.value);if(selectedOverlay?.type==="text")updateSelected({color:event.target.value})}} aria-label="Cor"/>
         <button className={(selectedOverlay?.type==="text"?selectedOverlay.bold:bold)?"active":""} onClick={()=>{const value=!(selectedOverlay?.type==="text"?selectedOverlay.bold:bold);setBold(value);if(selectedOverlay?.type==="text")updateSelected({bold:value})}}><Bold/></button>
         <button disabled={!active?.past.length} onClick={undo}><Undo2/></button>
@@ -200,8 +226,8 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
         {textHint&&<div className={`edit-text-hint ${textScanState}`}>{textHint}</div>}
         <div className={`pdf-stage tool-${tool}`} ref={stage} style={{width:`${zoom}%`}} onPointerDown={pointer} onPointerUp={pointer}>
           {active&&<PdfCanvas file={active.file} pageNumber={active.page+1} scale={1.35*(zoom/100)} className="main-pdf-canvas"/>}
-          <div className="overlay-layer">{currentOverlays.map(overlay=><button key={overlay.id} className={`pdf-overlay ${overlay.type} ${selected===overlay.id?"selected":""}`} style={{left:`${overlay.x*100}%`,top:`${overlay.y*100}%`,width:`${overlay.width*100}%`,height:`${overlay.height*100}%`,borderColor:overlay.color,color:overlay.color,fontSize:`${overlay.fontSize??12}px`,fontWeight:overlay.bold?700:400}} onPointerDown={event=>{if(tool==="select"){event.stopPropagation();setSelected(overlay.id)}}} aria-label={overlay.type==="text"?`Texto: ${overlay.text}`:"Elemento do PDF"}>{overlay.type==="text"?overlay.text:""}</button>)}</div>
-          {tool==="editText"&&<div className="pdf-text-selection-layer">{textItems.map(item=><button key={item.id} className="pdf-text-hitbox" style={{left:`${item.x*100}%`,top:`${item.y*100}%`,width:`${item.width*100}%`,height:`${item.height*100}%`}} onPointerDown={event=>event.stopPropagation()} onClick={()=>replaceTextItem(item)} aria-label={`Editar texto: ${item.text}`} title={`Editar: ${item.text}`}/>)}</div>}
+          <div className="overlay-layer">{currentOverlays.map(overlay=><button key={overlay.id} className={`pdf-overlay ${overlay.type} ${selected===overlay.id?"selected":""}`} style={{left:`${overlay.x*100}%`,top:`${overlay.y*100}%`,width:`${overlay.width*100}%`,height:`${overlay.height*100}%`,borderColor:overlay.color,color:overlay.color,fontSize:`${overlay.fontSize??12}px`,fontWeight:overlay.bold?700:400,fontFamily:overlay.fontFamily==="TimesRoman"?"Times New Roman, serif":overlay.fontFamily==="Courier"?"Courier New, monospace":"Arial, Helvetica, sans-serif"}} onPointerDown={event=>{if(tool==="select"){event.stopPropagation();setSelected(overlay.id)}}} aria-label={overlay.type==="text"?`Texto: ${overlay.text}`:"Elemento do PDF"}>{overlay.type==="text"?overlay.text:""}</button>)}</div>
+          {(tool==="editText"||tool==="copyFormat")&&<div className="pdf-text-selection-layer">{textItems.map(item=><button key={item.id} className="pdf-text-hitbox" style={{left:`${item.x*100}%`,top:`${item.y*100}%`,width:`${item.width*100}%`,height:`${item.height*100}%`}} onPointerDown={event=>event.stopPropagation()} onClick={()=>tool==="copyFormat"?copyFormatFromItem(item):replaceTextItem(item)} aria-label={tool==="copyFormat"?`Copiar formato de: ${item.text}`:`Editar texto: ${item.text}`} title={tool==="copyFormat"?`Usar formato de: ${item.text}`:`Editar: ${item.text}`}/>)}</div>}
         </div>
         {selectedOverlay&&<div className="element-properties"><strong>Propriedades do elemento</strong><label>X <input type="number" step=".01" value={selectedOverlay.x.toFixed(2)} onChange={event=>updateSelected({x:Number(event.target.value)})}/></label><label>Y <input type="number" step=".01" value={selectedOverlay.y.toFixed(2)} onChange={event=>updateSelected({y:Number(event.target.value)})}/></label><label>Largura <input type="number" step=".01" value={selectedOverlay.width.toFixed(2)} onChange={event=>updateSelected({width:Number(event.target.value)})}/></label><label>Altura <input type="number" step=".01" value={selectedOverlay.height.toFixed(2)} onChange={event=>updateSelected({height:Number(event.target.value)})}/></label>{selectedOverlay.type==="text"&&<label>Texto <input data-editor-text-input value={selectedOverlay.text} onChange={event=>updateSelected({text:event.target.value})}/></label>}</div>}
       </section>

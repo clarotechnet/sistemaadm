@@ -62,6 +62,9 @@ test("PDF editor selects original text precisely and exposes close/remove contro
   assert.match(editor, /coverBackground:false/);
   assert.match(editor, /Fechar editor/);
   assert.match(editor, /Remover PDF/);
+  assert.match(editor, /Copiar formato/);
+  assert.match(editor, /copyFormatFromItem/);
+  assert.match(service, /detectPdfFontFamily/);
   assert.match(toolsPage, /PdfEditor onClose/);
 });
 

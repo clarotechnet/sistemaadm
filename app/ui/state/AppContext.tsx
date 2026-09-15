@@ -3,14 +3,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ActivePayroll, AuditEntry, ComparisonRow, ProcessingSummary, SystemSettings, ToastMessage, UserProfile } from "../../../src/types";
 import { createSupabaseBrowserClient } from "../../../src/lib/supabase/client";
-import { cleanupExpiredRawFiles, loadAuditEntries, loadSystemSettings, storeAuditEntry } from "../../../src/services/browser-backend";
+import { cleanupExpiredRawFiles, clearAuditEntries, loadAuditEntries, loadSystemSettings, storeAuditEntry } from "../../../src/services/browser-backend";
 
 type ComparisonState = { rows: ComparisonRow[]; summary: ProcessingSummary; processedAt: string; fileName: string } | null;
 type AppContextValue = {
   user: UserProfile; activePayroll: ActivePayroll | null; setActivePayroll: (payroll: ActivePayroll | null) => void;
   health: ComparisonState; setHealth: (value: ComparisonState) => void; dental: ComparisonState; setDental: (value: ComparisonState) => void;
   settings: SystemSettings; settingsLoading:boolean; refreshSettings:()=>Promise<void>;
-  audits: AuditEntry[]; addAudit: (entry: Omit<AuditEntry, "id" | "timestamp" | "user">) => void;
+  audits: AuditEntry[]; addAudit: (entry: Omit<AuditEntry, "id" | "timestamp" | "user">) => void; clearAudits:()=>Promise<number>;
   toasts: ToastMessage[]; toast: (tone: ToastMessage["tone"], title: string, description?: string) => void; dismissToast: (id: string) => void;
 };
 
@@ -39,6 +39,11 @@ export function AppProvider({ children, user = demoUser }: { children: React.Rea
   const setActivePayroll = useCallback((payroll: ActivePayroll | null) => {
     setActivePayrollState(payroll); setHealth(null); setDental(null);
   }, []);
+  const clearAudits=useCallback(async()=>{
+    const result=await clearAuditEntries();
+    setAudits(result.audits);
+    return result.removed;
+  },[]);
   const dismissToast = useCallback((id: string) => setToasts(current => current.filter(item => item.id !== id)), []);
   const refreshSettings=useCallback(async()=>{
     setSettingsLoading(true);
@@ -71,7 +76,7 @@ export function AppProvider({ children, user = demoUser }: { children: React.Rea
     const timer=window.setInterval(cleanup,15*60*1000);
     return()=>window.clearInterval(timer);
   },[]);
-  const value = useMemo(() => ({ user, activePayroll, setActivePayroll, health, setHealth, dental, setDental, settings, settingsLoading, refreshSettings, audits, addAudit, toasts, toast, dismissToast }), [user, activePayroll, setActivePayroll, health, dental, settings, settingsLoading, refreshSettings, audits, addAudit, toasts, toast, dismissToast]);
+  const value = useMemo(() => ({ user, activePayroll, setActivePayroll, health, setHealth, dental, setDental, settings, settingsLoading, refreshSettings, audits, addAudit, clearAudits, toasts, toast, dismissToast }), [user, activePayroll, setActivePayroll, health, dental, settings, settingsLoading, refreshSettings, audits, addAudit, clearAudits, toasts, toast, dismissToast]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 

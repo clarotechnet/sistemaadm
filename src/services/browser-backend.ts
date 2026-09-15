@@ -145,6 +145,17 @@ export async function loadAuditEntries(): Promise<AuditEntry[]> {
   return ((data ?? []) as AuditRow[]).map(auditFromRow);
 }
 
+export async function clearAuditEntries(): Promise<{ removed:number; audits:AuditEntry[] }> {
+  if (!isStaticHostinger) {
+    const result=await jsonRequest<{ ok:boolean; removed:number }>("/api/audit", { method:"DELETE" });
+    return { removed:result.removed, audits:await loadAuditEntries() };
+  }
+  const supabase=createSupabaseBrowserClient();
+  const { data,error }=await supabase.rpc("admin_clear_audit_logs");
+  if(error)throw error;
+  return { removed:Number(data??0), audits:await loadAuditEntries() };
+}
+
 export async function storeAuditEntry(user: UserProfile, entry: AuditEntry) {
   if (!isStaticHostinger) {
     await jsonRequest<{ ok: boolean }>("/api/audit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(entry) });
