@@ -20,18 +20,55 @@ export interface RawFileUpload {
 }
 
 export type EmployeeStatus = "ATIVO" | "DESLIGADO";
+export type EmployeeSource = "MANUAL" | "QUARK";
 export type EmployeeDocumentStatus = "RECEBIDO" | "CONFERIDO" | "REJEITADO";
 
 export interface Employee {
   id: string;
   name: string;
   cpf: string;
+  documentNumber: string;
   registration: string;
   department: string;
   jobTitle: string;
   status: EmployeeStatus;
+  source: EmployeeSource;
+  externalId: string | null;
+  externalUnitId: string | null;
+  externalUnitName: string;
+  externalTeamId: string | null;
+  externalTeamName: string;
+  admissionDate: string | null;
+  terminationDate: string | null;
+  lastSyncedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+
+export interface EmployeeSyncRun {
+  id: string;
+  status: "RUNNING" | "SUCCESS" | "ERROR";
+  triggeredByName: string;
+  unitsCount: number;
+  receivedCount: number;
+  createdCount: number;
+  updatedCount: number;
+  linkedCount: number;
+  skippedCount: number;
+  errorMessage: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+export interface EmployeeSyncResult {
+  runId: string;
+  units: number;
+  received: number;
+  created: number;
+  updated: number;
+  linked: number;
+  skipped: number;
 }
 
 export interface DocumentCategory {
@@ -113,6 +150,15 @@ export interface ActivePayroll {
   records: PayrollRecord[];
   logs: string[];
 }
+
+export interface PayrollMonthOption {
+  id: string;
+  competence: string;
+  fileName: string;
+  recordCount: number;
+  importedAt: string;
+  importedBy: string;
+}
 export interface ReferenceRecord { cpf: string; name: string; value: number; }
 
 export interface ComparisonRow {
@@ -133,6 +179,15 @@ export interface ProcessingSummary {
   divergent: number;
   missing: number;
   differenceTotal: number;
+}
+
+export interface PlanComparisonState {
+  rows: ComparisonRow[];
+  summary: ProcessingSummary;
+  processedAt: string;
+  fileName: string;
+  tolerance?: number;
+  processedBy?: string;
 }
 
 export interface AuditEntry {

@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
-import { Archive, CheckCircle2, Download, Eye, FileText, Folder, Pencil, Plus, RotateCcw, Search, ShieldCheck, Trash2, Upload, Users, X } from "lucide-react";
-import type { DocumentCategory, Employee, EmployeeDocument, EmployeeDocumentStatus, EmployeeStatus } from "../../../src/types";
+import { Archive, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, FileText, Folder, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Upload, Users, X } from "lucide-react";
+import type { DocumentCategory, Employee, EmployeeDocument, EmployeeDocumentStatus, EmployeeStatus, EmployeeSyncRun } from "../../../src/types";
 import { formatCpf } from "../../../src/utils/cpf";
 import { downloadFile, formatFileSize } from "../../../src/utils/download";
 import {
@@ -14,10 +14,12 @@ import {
   listDocumentCategories,
   listEmployeeDocuments,
   listEmployees,
+  loadLatestEmployeeSync,
   purgeEmployeeDocument,
   restoreEmployeeDocument,
   reviewEmployeeDocument,
   saveEmployee,
+  syncEmployeesFromQuark,
   trashEmployeeDocument,
   uploadEmployeeDocument,
 } from "../../../src/services/employee-documents";
@@ -25,6 +27,7 @@ import { ConfirmationModal, EmptyState, MetricCard, StatusBadge } from "../compo
 import { useApp } from "../state/AppContext";
 
 type CenterView = "documents" | "employees" | "trash";
+type EmployeeStatusFilter = "ALL" | EmployeeStatus;
 type EmployeeForm = { name: string; cpf: string; department: string; status: EmployeeStatus };
 type UploadForm = { employeeId: string; categoryId: string; competence: string; title: string; notes: string };
 
@@ -35,6 +38,17 @@ const currentCompetence = () => {
 const emptyEmployeeForm = (): EmployeeForm => ({ name: "", cpf: "", department: "", status: "ATIVO" });
 const emptyUploadForm = (competence: string): UploadForm => ({ employeeId: "", categoryId: "", competence, title: "", notes: "" });
 const competenceLabel = (value: string) => value ? `${value.slice(5, 7)}/${value.slice(0, 4)}` : "—";
+const competenceLongLabel = (value: string) => {
+  if (!/^\d{4}-\d{2}$/.test(value)) return "Período inválido";
+  const [year, month] = value.split("-").map(Number);
+  const label = new Date(year, month - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+};
+const shiftCompetence = (value: string, delta: number) => {
+  const [year, month] = value.split("-").map(Number);
+  const date = new Date(year, month - 1 + delta, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+};
 const archiveSafeName = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[<>:"/\\|?*]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 140) || "Documento";
 const displayDate = (value: string | null) => value ? new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
 
@@ -52,6 +66,7 @@ export function EmployeeDocumentsPage() {
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [employeeFilter, setEmployeeFilter] = useState("");
+  const [employeeStatusFilter, setEmployeeStatusFilter] = useState<EmployeeStatusFilter>("ALL");
   const [showVersions, setShowVersions] = useState(false);
   const [loadingBase, setLoadingBase] = useState(true);
   const [loadingDocuments, setLoadingDocuments] = useState(true);
@@ -69,16 +84,21 @@ export function EmployeeDocumentsPage() {
   const [packageProgress, setPackageProgress] = useState("");
   const [trashTarget, setTrashTarget] = useState<EmployeeDocument | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<EmployeeDocument | null>(null);
+  const [employeeSync, setEmployeeSync] = useState<EmployeeSyncRun | null>(null);
+  const [syncingEmployees, setSyncingEmployees] = useState(false);
+  const documentsRequestRef = useRef(0);
 
   const employeeById = useMemo(() => new Map(employees.map(employee => [employee.id, employee])), [employees]);
   const categoryById = useMemo(() => new Map(categories.map(category => [category.id, category])), [categories]);
+  const periodOptions = useMemo(() => Array.from({ length: 37 }, (_, index) => shiftCompetence(competence, 12 - index)), [competence]);
 
   const loadBase = useCallback(async () => {
     setLoadingBase(true);
     try {
-      const [nextEmployees, nextCategories] = await Promise.all([listEmployees(), listDocumentCategories()]);
+      const [nextEmployees, nextCategories, nextSync] = await Promise.all([listEmployees(), listDocumentCategories(), loadLatestEmployeeSync()]);
       setEmployees(nextEmployees);
       setCategories(nextCategories);
+      setEmployeeSync(nextSync);
     } catch (caught) {
       toast("error", "Não foi possível abrir a Central de Documentos", caught instanceof Error ? caught.message : "Verifique a conexão.");
     } finally {
@@ -87,13 +107,15 @@ export function EmployeeDocumentsPage() {
   }, [toast]);
 
   const loadDocuments = useCallback(async () => {
+    const requestId = ++documentsRequestRef.current;
     setLoadingDocuments(true);
     try {
-      setDocuments(await listEmployeeDocuments(competence));
+      const nextDocuments = await listEmployeeDocuments(competence);
+      if (requestId === documentsRequestRef.current) setDocuments(nextDocuments);
     } catch (caught) {
-      toast("error", "Não foi possível carregar os documentos", caught instanceof Error ? caught.message : "Verifique a conexão.");
+      if (requestId === documentsRequestRef.current) toast("error", "Não foi possível carregar os documentos", caught instanceof Error ? caught.message : "Verifique a conexão.");
     } finally {
-      setLoadingDocuments(false);
+      if (requestId === documentsRequestRef.current) setLoadingDocuments(false);
     }
   }, [competence, toast]);
 
@@ -118,6 +140,8 @@ export function EmployeeDocumentsPage() {
   const visibleDocuments = documents.filter(document => (showVersions || document.isCurrent) && matchesFilters(document));
   const visibleTrash = trash.filter(matchesFilters);
   const activeEmployees = employees.filter(employee => employee.status === "ATIVO");
+  const disconnectedEmployees = employees.filter(employee => employee.status === "DESLIGADO");
+  const visibleEmployees = employeeStatusFilter === "ALL" ? employees : employees.filter(employee => employee.status === employeeStatusFilter);
   const requiredCategories = categories.filter(category => category.monthlyRequired);
   const currentDocuments = documents.filter(document => document.isCurrent);
   const receivedKeys = new Set(currentDocuments.map(document => `${document.employeeId}:${document.categoryId}`));
@@ -143,6 +167,23 @@ export function EmployeeDocumentsPage() {
     } catch (caught) {
       app.toast("error", "Não foi possível salvar o funcionário", caught instanceof Error ? caught.message : "Revise os dados.");
     } finally { setSavingEmployee(false); }
+  };
+
+  const syncQuarkEmployees = async () => {
+    if (!canManage || syncingEmployees) return;
+    setSyncingEmployees(true);
+    try {
+      const result = await syncEmployeesFromQuark();
+      await loadBase();
+      app.addAudit({ operation: "Sincronizou funcionários do QuarkRH", module: "Documentos", result: `${result.received} recebidos · ${result.created} novos · ${result.updated} atualizados · ${result.linked} vinculados`, status: result.skipped ? "AVISO" : "SUCESSO", processedCount: result.received, missingCount: result.skipped });
+      app.toast("success", "Funcionários sincronizados com o QuarkRH", `${result.created} novo(s), ${result.updated} atualizado(s) e ${result.linked} cadastro(s) existente(s) vinculado(s).`);
+      if (result.skipped) app.toast("warning", `${result.skipped} registro(s) ignorado(s)`, "Registros sem ID, nome ou CPF válido não foram importados.");
+    } catch (caught) {
+      app.toast("error", "Não foi possível sincronizar o QuarkRH", caught instanceof Error ? caught.message : "Verifique a configuração da integração.");
+      setEmployeeSync(await loadLatestEmployeeSync().catch(() => null));
+    } finally {
+      setSyncingEmployees(false);
+    }
   };
 
   const openUpload = () => {
@@ -322,12 +363,50 @@ export function EmployeeDocumentsPage() {
   return <>
     <div className="page-heading documents-heading"><div><h2>Documentos dos Funcionários</h2><p>Cofre privado para documentos trabalhistas e pacotes mensais de auditoria.</p></div><div>{canManage && <button className="button secondary" onClick={() => openEmployee()}><Plus /> Novo funcionário</button>}<button className="button primary" disabled={!canManage || !employees.length} onClick={openUpload}><Upload /> Enviar documentos</button></div></div>
     <div className="documents-security-note"><ShieldCheck /><span><strong>Arquivos privados e rastreáveis</strong><small>O acesso exige login; visualizações, downloads, alterações e exclusões são registrados no histórico.</small></span></div>
-    <div className="metrics-grid documents-metrics"><MetricCard label="FUNCIONÁRIOS ATIVOS" value={loadingBase ? "—" : activeEmployees.length} detail="cadastrados para auditoria" /><MetricCard label={`DOCUMENTOS · ${competenceLabel(competence)}`} value={loadingDocuments ? "—" : currentDocuments.length} detail={`${reviewedCount} conferido(s)`} tone="success" /><MetricCard label="OBRIGATÓRIOS RECEBIDOS" value={loadingDocuments ? "—" : `${receivedRequired}/${requiredTotal}`} detail="ponto e holerite por funcionário" tone={pendingRequired ? "warning" : "success"} /><MetricCard label="PENDÊNCIAS DO MÊS" value={loadingDocuments ? "—" : pendingRequired} detail={pendingRequired ? "documentos obrigatórios ausentes" : "competência completa"} tone={pendingRequired ? "warning" : "success"} /></div>
+    <div className="metrics-grid documents-metrics"><MetricCard label="TOTAL DE FUNCIONÁRIOS" value={loadingBase ? "—" : employees.length} detail={loadingBase ? "carregando cadastros" : `${activeEmployees.length} ativos · ${disconnectedEmployees.length} desligados`} /><MetricCard label={`DOCUMENTOS · ${competenceLabel(competence)}`} value={loadingDocuments ? "—" : currentDocuments.length} detail={`${reviewedCount} conferido(s)`} tone="success" /><MetricCard label="OBRIGATÓRIOS RECEBIDOS" value={loadingDocuments ? "—" : `${receivedRequired}/${requiredTotal}`} detail="ponto e holerite por funcionário" tone={pendingRequired ? "warning" : "success"} /><MetricCard label="PENDÊNCIAS DO MÊS" value={loadingDocuments ? "—" : pendingRequired} detail={pendingRequired ? "documentos obrigatórios ausentes" : "competência completa"} tone={pendingRequired ? "warning" : "success"} /></div>
     <div className="tabs documents-tabs"><button className={view === "documents" ? "active" : ""} onClick={() => setView("documents")}>Documentos</button><button className={view === "employees" ? "active" : ""} onClick={() => setView("employees")}>Funcionários</button>{canManage && <button className={view === "trash" ? "active" : ""} onClick={() => setView("trash")}>Lixeira</button>}</div>
 
-    {view === "documents" && <section className="surface table-surface documents-surface"><div className="documents-toolbar"><div className="search-box"><Search /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Pesquisar documento, funcionário ou CPF" /></div><label><span>Competência</span><input type="month" value={competence} onChange={event => setCompetence(event.target.value)} /></label><label><span>Funcionário</span><select value={employeeFilter} onChange={event => setEmployeeFilter(event.target.value)}><option value="">Todos</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label><label><span>Categoria</span><select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)}><option value="">Todas</option>{categories.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label></div><div className="documents-subtoolbar"><label className="checkbox-line"><input type="checkbox" checked={showVersions} onChange={event => setShowVersions(event.target.checked)} /> Mostrar versões anteriores</label><span>{visibleDocuments.length} documento(s)</span><button className="button secondary" disabled={packaging || !currentDocuments.length} onClick={() => void makeMonthlyPackage()}><Archive /> {packaging ? packageProgress || "Gerando pacote..." : "Gerar pacote mensal"}</button></div>{documentTable(visibleDocuments)}</section>}
+    {view === "documents" && <section className="surface table-surface documents-surface"><div className="documents-toolbar"><div className="search-box"><Search /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Pesquisar documento, funcionário ou CPF" /></div><label className="documents-period-field"><span>Período</span><div className="documents-period-control"><button type="button" title="Mês anterior" aria-label="Mês anterior" onClick={() => setCompetence(current => shiftCompetence(current, -1))}><ChevronLeft /></button><select value={competence} onChange={event => setCompetence(event.target.value)} aria-label="Selecionar período">{periodOptions.map(period => <option key={period} value={period}>{competenceLongLabel(period)}</option>)}</select><button type="button" title="Próximo mês" aria-label="Próximo mês" onClick={() => setCompetence(current => shiftCompetence(current, 1))}><ChevronRight /></button></div></label><label><span>Funcionário</span><select value={employeeFilter} onChange={event => setEmployeeFilter(event.target.value)}><option value="">Todos</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label><label><span>Categoria</span><select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)}><option value="">Todas</option>{categories.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label></div><div className="documents-subtoolbar"><label className="checkbox-line"><input type="checkbox" checked={showVersions} onChange={event => setShowVersions(event.target.checked)} /> Mostrar versões anteriores</label><span>{visibleDocuments.length} documento(s)</span><button className="button secondary" disabled={packaging || !currentDocuments.length} onClick={() => void makeMonthlyPackage()}><Archive /> {packaging ? packageProgress || "Gerando pacote..." : "Gerar pacote mensal"}</button></div>{documentTable(visibleDocuments)}</section>}
 
-    {view === "employees" && <section className="surface table-surface documents-surface"><div className="section-header"><div><h3>Cadastro de funcionários</h3><p>Funcionários são diferentes dos usuários que acessam o sistema.</p></div>{canManage && <button className="button primary" onClick={() => openEmployee()}><Plus /> Cadastrar funcionário</button>}</div>{employees.length ? <div className="table-scroll"><table className="data-table employees-table"><thead><tr><th>Funcionário</th><th>CPF</th><th>Setor</th><th>Status</th>{canManage && <th className="right">Ações</th>}</tr></thead><tbody>{employees.map(employee => <tr key={employee.id}><td><strong>{employee.name}</strong></td><td className="mono">{formatCpf(employee.cpf, app.settings.maskCpf)}</td><td>{employee.department || "—"}</td><td><StatusBadge status={employee.status} /></td>{canManage && <td><div className="row-actions document-actions"><button title="Editar funcionário" onClick={() => openEmployee(employee)}><Pencil /></button></div></td>}</tr>)}</tbody></table></div> : <EmptyState icon={<Users />} title={loadingBase ? "Carregando funcionários..." : "Nenhum funcionário cadastrado"} description="Cadastre o primeiro funcionário para começar a arquivar documentos." action={canManage ? <button className="button primary" onClick={() => openEmployee()}><Plus /> Cadastrar funcionário</button> : undefined} />}</section>}
+    {view === "employees" && <section className="surface table-surface documents-surface">
+      <div className="section-header employee-sync-header">
+        <div>
+          <h3>Cadastro de funcionários</h3>
+          <p>Cadastros do QuarkRH são atualizados automaticamente; funcionários manuais continuam disponíveis.</p>
+          {employeeSync && <small className={`employee-sync-meta ${employeeSync.status.toLowerCase()}`}>
+            Última sincronização: {displayDate(employeeSync.completedAt ?? employeeSync.startedAt)} · {employeeSync.receivedCount} recebidos · {employeeSync.createdCount} novos · {employeeSync.updatedCount} atualizados · {employeeSync.linkedCount} vinculados
+          </small>}
+        </div>
+        {canManage && <div className="employee-sync-actions">
+          <button className="button secondary" disabled={syncingEmployees} onClick={() => void syncQuarkEmployees()}><RefreshCw className={syncingEmployees ? "spin" : ""} /> {syncingEmployees ? "Sincronizando..." : "Sincronizar QuarkRH"}</button>
+          <button className="button primary" disabled={syncingEmployees} onClick={() => openEmployee()}><Plus /> Cadastrar manualmente</button>
+        </div>}
+      </div>
+      <div className="employee-status-kpis" aria-label="Filtrar funcionários por situação">
+        <button type="button" className={`employee-status-kpi total ${employeeStatusFilter === "ALL" ? "active" : ""}`} onClick={() => setEmployeeStatusFilter("ALL")} aria-pressed={employeeStatusFilter === "ALL"}>
+          <span>Total de funcionários</span><strong>{loadingBase ? "—" : employees.length}</strong><small>todos os cadastros</small>
+        </button>
+        <button type="button" className={`employee-status-kpi active-status ${employeeStatusFilter === "ATIVO" ? "active" : ""}`} onClick={() => setEmployeeStatusFilter("ATIVO")} aria-pressed={employeeStatusFilter === "ATIVO"}>
+          <span>Ativos</span><strong>{loadingBase ? "—" : activeEmployees.length}</strong><small>em atividade</small>
+        </button>
+        <button type="button" className={`employee-status-kpi disconnected ${employeeStatusFilter === "DESLIGADO" ? "active" : ""}`} onClick={() => setEmployeeStatusFilter("DESLIGADO")} aria-pressed={employeeStatusFilter === "DESLIGADO"}>
+          <span>Desligados</span><strong>{loadingBase ? "—" : disconnectedEmployees.length}</strong><small>clique para visualizar</small>
+        </button>
+      </div>
+      <div className="employee-filter-summary"><span>Exibindo <strong>{visibleEmployees.length}</strong> de {employees.length} funcionário(s)</span>{employeeStatusFilter !== "ALL" && <button type="button" onClick={() => setEmployeeStatusFilter("ALL")}>Limpar filtro</button>}</div>
+      {employees.length ? <div className="table-scroll"><table className="data-table employees-table">
+        <thead><tr><th>Funcionário</th><th>CPF</th><th>Setor / Equipe</th><th>Cargo</th><th>Origem</th><th>Status</th>{canManage && <th className="right">Ações</th>}</tr></thead>
+        <tbody>{visibleEmployees.map(employee => <tr key={employee.id}>
+          <td><strong>{employee.name}</strong>{employee.externalUnitName && <small className="block-muted">{employee.externalUnitName}</small>}</td>
+          <td className="mono">{formatCpf(employee.cpf, app.settings.maskCpf)}</td>
+          <td>{employee.department || "—"}</td>
+          <td>{employee.jobTitle || "—"}</td>
+          <td><span className={`employee-source-badge ${employee.source.toLowerCase()}`}>{employee.source === "QUARK" ? "QuarkRH" : "Manual"}</span></td>
+          <td><StatusBadge status={employee.status} /></td>
+          {canManage && <td><div className="row-actions document-actions">{employee.source === "MANUAL" ? <button title="Editar funcionário" onClick={() => openEmployee(employee)}><Pencil /></button> : <span className="employee-managed-label" title="Nome, CPF, setor, cargo e status são atualizados pelo QuarkRH">Sincronizado</span>}</div></td>}
+        </tr>)}</tbody>
+      </table></div> : <EmptyState icon={<Users />} title={loadingBase ? "Carregando funcionários..." : "Nenhum funcionário cadastrado"} description="Sincronize com o QuarkRH ou cadastre um funcionário manualmente." action={canManage ? <button className="button secondary" disabled={syncingEmployees} onClick={() => void syncQuarkEmployees()}><RefreshCw /> Sincronizar QuarkRH</button> : undefined} />}
+    </section>}
 
     {view === "trash" && canManage && <section className="surface table-surface documents-surface"><div className="section-header"><div><h3>Lixeira de documentos</h3><p>RH pode restaurar arquivos. Apenas Administradores podem excluí-los definitivamente.</p></div><span>{visibleTrash.length} item(ns)</span></div>{documentTable(visibleTrash, true)}</section>}
 
@@ -346,6 +425,19 @@ function EmployeeModal({ form, setForm, editing, busy, onClose, onSave }: { form
 function UploadModal({ form, setForm, employees, categories, files, setFiles, busy, progress, onClose, onUpload }: { form: UploadForm; setForm: (form: UploadForm) => void; employees: Employee[]; categories: DocumentCategory[]; files: File[]; setFiles: (files: File[]) => void; busy: boolean; progress: string; onClose: () => void; onUpload: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [employeePickerOpen, setEmployeePickerOpen] = useState(false);
+  const employeePickerRef = useRef<HTMLDivElement>(null);
+  const selectedEmployee = employees.find(employee => employee.id === form.employeeId);
+  const normalizedEmployeeName = employeeSearch.trim().toLocaleLowerCase("pt-BR");
+  const normalizedEmployeeCpf = employeeSearch.replace(/\D/g, "");
+  const filteredEmployees = employees.filter(employee => !employeeSearch.trim() || employee.name.toLocaleLowerCase("pt-BR").includes(normalizedEmployeeName) || (normalizedEmployeeCpf.length > 0 && employee.cpf.includes(normalizedEmployeeCpf)));
+  useEffect(() => {
+    if (!employeePickerOpen) return;
+    const close = (event: PointerEvent) => { if (event.target instanceof Node && !employeePickerRef.current?.contains(event.target)) setEmployeePickerOpen(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [employeePickerOpen]);
   const addFiles = (list: FileList | null) => { if (list) setFiles([...files, ...Array.from(list)]); };
-  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}><div className="modal form-modal document-upload-modal" role="dialog" aria-modal="true"><h3>Enviar documentos</h3><p>Os arquivos serão armazenados no cofre privado e vinculados ao funcionário.</p><div className="two-fields"><label className="field grow"><span>Funcionário</span><select value={form.employeeId} onChange={event => setForm({ ...form, employeeId: event.target.value })}><option value="">Selecione</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}{employee.status === "DESLIGADO" ? " · desligado" : ""}</option>)}</select></label><label className="field grow"><span>Categoria</span><select value={form.categoryId} onChange={event => setForm({ ...form, categoryId: event.target.value })}><option value="">Selecione</option>{categories.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label></div><div className="two-fields"><label className="field grow"><span>Competência</span><input type="month" value={form.competence} onChange={event => setForm({ ...form, competence: event.target.value })} /></label><label className="field grow"><span>Título do documento</span><input value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} placeholder="Opcional; usado quando houver um arquivo" /></label></div><label className="field"><span>Observações</span><textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="Informação opcional para a auditoria" /></label><button type="button" className={`document-dropzone ${dragging ? "dragging" : ""}`} onClick={() => input.current?.click()} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}><Upload /><strong>Arraste os documentos para cá</strong><span>ou clique para selecionar · até 50 MB por arquivo</span><small>PDF, imagens, Word, Excel, CSV ou ZIP</small></button><input ref={input} hidden type="file" accept={employeeDocumentAccept} multiple onChange={event => { addFiles(event.target.files); event.target.value = ""; }} />{files.length > 0 && <div className="document-selected-files">{files.map((file, index) => <div key={`${file.name}-${file.lastModified}-${index}`} className={file.size > employeeDocumentMaxSize ? "invalid" : ""}><FileText /><span><strong>{file.name}</strong><small>{formatFileSize(file.size)}{file.size > employeeDocumentMaxSize ? " · excede 50 MB" : ""}</small></span><button disabled={busy} onClick={() => setFiles(files.filter((_, current) => current !== index))} aria-label={`Remover ${file.name}`}><X /></button></div>)}</div>}{progress && <div className="upload-progress"><i /><span>{progress}</span></div>}<div className="modal-actions"><button className="button secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || !files.length || files.some(file => file.size > employeeDocumentMaxSize)} onClick={onUpload}>{busy ? "Enviando..." : `Arquivar ${files.length || ""} documento(s)`}</button></div></div></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}><div className="modal form-modal document-upload-modal" role="dialog" aria-modal="true"><h3>Enviar documentos</h3><p>Os arquivos serão armazenados no cofre privado e vinculados ao funcionário.</p><div className="two-fields"><div className="field grow"><span>Funcionário</span><div className="employee-combobox" ref={employeePickerRef}><button type="button" className="employee-combobox-trigger" disabled={busy} aria-expanded={employeePickerOpen} onClick={() => setEmployeePickerOpen(open => !open)}><span><strong>{selectedEmployee?.name ?? "Selecione um funcionário"}</strong>{selectedEmployee && <small>{selectedEmployee.department || "Sem setor"}{selectedEmployee.status === "DESLIGADO" ? " · desligado" : ""}</small>}</span><i>⌄</i></button>{employeePickerOpen && <div className="employee-combobox-menu"><div className="employee-combobox-search"><Search size={15}/><input autoFocus disabled={busy} value={employeeSearch} onChange={event => setEmployeeSearch(event.target.value)} placeholder="Pesquisar por nome ou CPF" autoComplete="off" /></div><div className="employee-combobox-list">{filteredEmployees.length ? filteredEmployees.map(employee => <button type="button" key={employee.id} className={employee.id === form.employeeId ? "selected" : ""} onClick={() => { setForm({ ...form, employeeId: employee.id }); setEmployeeSearch(""); setEmployeePickerOpen(false); }}><span><strong>{employee.name}</strong><small>{employee.department || "Sem setor"}{employee.status === "DESLIGADO" ? " · desligado" : ""}</small></span>{employee.id === form.employeeId && <b>✓</b>}</button>) : <div className="employee-combobox-empty">Nenhum funcionário encontrado.</div>}</div></div>}</div></div><label className="field grow"><span>Categoria</span><select value={form.categoryId} onChange={event => setForm({ ...form, categoryId: event.target.value })}><option value="">Selecione</option>{categories.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label></div><div className="two-fields"><label className="field grow"><span>Competência</span><input type="month" value={form.competence} onChange={event => setForm({ ...form, competence: event.target.value })} /></label><label className="field grow"><span>Título do documento</span><input value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} placeholder="Opcional; usado quando houver um arquivo" /></label></div><label className="field"><span>Observações</span><textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="Informação opcional para a auditoria" /></label><button type="button" className={`document-dropzone ${dragging ? "dragging" : ""}`} onClick={() => input.current?.click()} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}><Upload /><strong>Arraste os documentos para cá</strong><span>ou clique para selecionar · até 50 MB por arquivo</span><small>PDF, imagens, Word, Excel, CSV ou ZIP</small></button><input ref={input} hidden type="file" accept={employeeDocumentAccept} multiple onChange={event => { addFiles(event.target.files); event.target.value = ""; }} />{files.length > 0 && <div className="document-selected-files">{files.map((file, index) => <div key={`${file.name}-${file.lastModified}-${index}`} className={file.size > employeeDocumentMaxSize ? "invalid" : ""}><FileText /><span><strong>{file.name}</strong><small>{formatFileSize(file.size)}{file.size > employeeDocumentMaxSize ? " · excede 50 MB" : ""}</small></span><button disabled={busy} onClick={() => setFiles(files.filter((_, current) => current !== index))} aria-label={`Remover ${file.name}`}><X /></button></div>)}</div>}{progress && <div className="upload-progress"><i /><span>{progress}</span></div>}<div className="modal-actions"><button className="button secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || !files.length || files.some(file => file.size > employeeDocumentMaxSize)} onClick={onUpload}>{busy ? "Enviando..." : `Arquivar ${files.length || ""} documento(s)`}</button></div></div></div>;
 }

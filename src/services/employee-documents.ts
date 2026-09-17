@@ -1,4 +1,4 @@
-import type { DocumentCategory, Employee, EmployeeDocument, EmployeeDocumentStatus, EmployeeStatus } from "../types";
+import type { DocumentCategory, Employee, EmployeeDocument, EmployeeDocumentStatus, EmployeeStatus, EmployeeSyncResult, EmployeeSyncRun } from "../types";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import { isValidCpf, normalizeCpf } from "../utils/cpf";
 
@@ -8,8 +8,15 @@ export const employeeDocumentAccept = ".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xls
 const acceptedExtensions = new Set(employeeDocumentAccept.split(",").map(value => value.slice(1)));
 
 type EmployeeRow = {
-  id: string; full_name: string; cpf: string; registration: string; department: string; job_title: string;
-  status: EmployeeStatus; created_at: string; updated_at: string;
+  id: string; full_name: string; cpf: string; document_number: string; registration: string; department: string; job_title: string;
+  status: EmployeeStatus; source: "MANUAL" | "QUARK"; external_id: string | null; external_unit_id: string | null;
+  external_unit_name: string; external_team_id: string | null; external_team_name: string; admission_date: string | null;
+  termination_date: string | null; last_synced_at: string | null; created_at: string; updated_at: string;
+};
+type EmployeeSyncRunRow = {
+  id:string; status:EmployeeSyncRun["status"]; triggered_by_name:string; units_count:number; received_count:number;
+  created_count:number; updated_count:number; linked_count:number; skipped_count:number; error_message:string|null;
+  started_at:string; completed_at:string|null;
 };
 type CategoryRow = { id: string; label: string; monthly_required: boolean; active: boolean; sort_order: number };
 type DocumentRow = {
@@ -21,8 +28,11 @@ type DocumentRow = {
 };
 
 const employeeFromRow = (row: EmployeeRow): Employee => ({
-  id: row.id, name: row.full_name, cpf: row.cpf, registration: row.registration, department: row.department,
-  jobTitle: row.job_title, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
+  id: row.id, name: row.full_name, cpf: row.cpf, documentNumber: row.document_number ?? "", registration: row.registration, department: row.department,
+  jobTitle: row.job_title, status: row.status, source: row.source ?? "MANUAL", externalId: row.external_id ?? null,
+  externalUnitId: row.external_unit_id ?? null, externalUnitName: row.external_unit_name ?? "", externalTeamId: row.external_team_id ?? null,
+  externalTeamName: row.external_team_name ?? "", admissionDate: row.admission_date ?? null, terminationDate: row.termination_date ?? null,
+  lastSyncedAt: row.last_synced_at ?? null, createdAt: row.created_at, updatedAt: row.updated_at,
 });
 const categoryFromRow = (row: CategoryRow): DocumentCategory => ({
   id: row.id, label: row.label, monthlyRequired: row.monthly_required, active: row.active, sortOrder: row.sort_order,
@@ -57,7 +67,7 @@ function readableDatabaseError(error: { code?: string; message: string }) {
 
 export async function listEmployees(): Promise<Employee[]> {
   const supabase = createSupabaseBrowserClient();
-  const { data, error } = await supabase.from("employees").select("id,full_name,cpf,registration,department,job_title,status,created_at,updated_at").order("full_name");
+  const { data, error } = await supabase.from("employees").select("id,full_name,cpf,document_number,registration,department,job_title,status,source,external_id,external_unit_id,external_unit_name,external_team_id,external_team_name,admission_date,termination_date,last_synced_at,created_at,updated_at").order("full_name");
   if (error) throw error;
   return ((data ?? []) as EmployeeRow[]).map(employeeFromRow);
 }
@@ -77,9 +87,33 @@ export async function saveEmployee(
   const request = employeeId
     ? supabase.from("employees").update(values).eq("id", employeeId)
     : supabase.from("employees").insert(values);
-  const { data, error } = await request.select("id,full_name,cpf,registration,department,job_title,status,created_at,updated_at").single();
+  const { data, error } = await request.select("id,full_name,cpf,document_number,registration,department,job_title,status,source,external_id,external_unit_id,external_unit_name,external_team_id,external_team_name,admission_date,termination_date,last_synced_at,created_at,updated_at").single();
   if (error) throw readableDatabaseError(error);
   return employeeFromRow(data as EmployeeRow);
+}
+
+const syncRunFromRow = (row: EmployeeSyncRunRow): EmployeeSyncRun => ({
+  id: row.id, status: row.status, triggeredByName: row.triggered_by_name, unitsCount: Number(row.units_count ?? 0),
+  receivedCount: Number(row.received_count ?? 0), createdCount: Number(row.created_count ?? 0), updatedCount: Number(row.updated_count ?? 0),
+  linkedCount: Number(row.linked_count ?? 0), skippedCount: Number(row.skipped_count ?? 0), errorMessage: row.error_message ?? null,
+  startedAt: row.started_at, completedAt: row.completed_at ?? null,
+});
+
+export async function loadLatestEmployeeSync(): Promise<EmployeeSyncRun | null> {
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase.from("employee_sync_runs").select("id,status,triggered_by_name,units_count,received_count,created_count,updated_count,linked_count,skipped_count,error_message,started_at,completed_at").order("started_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  return data ? syncRunFromRow(data as EmployeeSyncRunRow) : null;
+}
+
+export async function syncEmployeesFromQuark(): Promise<EmployeeSyncResult> {
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase.functions.invoke("sync-quark-employees", { body: {} });
+  const body = (data ?? {}) as Partial<EmployeeSyncResult> & { error?: string };
+  if (error) throw error;
+  if (body.error) throw new Error(body.error);
+  if (!body.runId) throw new Error("A sincronização terminou sem retornar o identificador da execução.");
+  return { runId: body.runId, units: Number(body.units ?? 0), received: Number(body.received ?? 0), created: Number(body.created ?? 0), updated: Number(body.updated ?? 0), linked: Number(body.linked ?? 0), skipped: Number(body.skipped ?? 0) };
 }
 
 export async function listDocumentCategories(): Promise<DocumentCategory[]> {

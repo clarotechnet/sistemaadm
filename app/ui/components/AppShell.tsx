@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, ChevronDown, FileBarChart, FileStack, FolderLock, Gauge, History, Menu, PanelLeftClose, Settings, Sheet, ShieldCheck, Trash2, Users, X } from "lucide-react";
+import { Bell, ChevronDown, FileBarChart, FileStack, FolderLock, Gauge, History, Menu, Moon, PanelLeftClose, Settings, Sheet, ShieldCheck, Sun, Trash2, Users, X } from "lucide-react";
 import { useApp } from "../state/AppContext";
 import { createSupabaseBrowserClient } from "../../../src/lib/supabase/client";
 
@@ -14,12 +14,16 @@ const routes: { id: AppRoute; label: string; icon: typeof Gauge; roles?: string[
   { id: "settings", label: "Configurações", icon: Settings, roles: ["ADMINISTRADOR"] },
 ];
 
+type ThemeMode = "light" | "dark";
+const THEME_STORAGE_KEY = "rh-control:theme";
+
 export function AppShell({ route, onNavigate, children }: { route: AppRoute; onNavigate: (route: AppRoute) => void; children: React.ReactNode }) {
   const { user, audits } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>("light");
   const notificationStorageKey = `rh-control:notifications-cleared:${user.id}`;
   const [notificationsClearedAt, setNotificationsClearedAt] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem(notificationStorageKey) ?? "");
   const accountRef = useRef<HTMLDivElement>(null);
@@ -27,6 +31,18 @@ export function AppShell({ route, onNavigate, children }: { route: AppRoute; onN
   const active = routes.find(item => item.id === route)!;
   const visibleNotifications = audits.filter(item => !notificationsClearedAt || item.timestamp > notificationsClearedAt);
   const clearNotifications = () => { const clearedAt = new Date().toISOString(); setNotificationsClearedAt(clearedAt); window.localStorage.setItem(notificationStorageKey, clearedAt) };
+  const toggleTheme = () => setTheme(current => {
+    const next: ThemeMode = current === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    window.localStorage.setItem(THEME_STORAGE_KEY, next);
+    return next;
+  });
+  useEffect(() => {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    const initial: ThemeMode = stored === "dark" ? "dark" : "light";
+    setTheme(initial);
+    document.documentElement.dataset.theme = initial;
+  }, []);
   useEffect(() => {
     if (!accountOpen && !notificationsOpen) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
@@ -54,7 +70,7 @@ export function AppShell({ route, onNavigate, children }: { route: AppRoute; onN
       <button className="collapse-button" onClick={() => setCollapsed(value => !value)}><PanelLeftClose size={16} /><span>Recolher menu</span></button>
     </aside>
     <main className="control-main">
-      <header className="control-topbar"><div className="topbar-title"><button className="mobile-menu" onClick={() => setMobileOpen(true)}><Menu /></button><div><span>RH CONTROLE</span><h1>{active.label}</h1></div></div><div className="topbar-actions"><div className="notification-wrap" ref={notificationRef}><button className="notification-button" aria-label="Notificações" aria-expanded={notificationsOpen} aria-haspopup="dialog" onClick={() => { setNotificationsOpen(value => !value); setAccountOpen(false); }}><Bell size={18} />{visibleNotifications.length > 0 && <i aria-hidden="true" />}</button>{notificationsOpen && <div className="notification-menu" role="dialog" aria-label="Notificações recentes"><div className="notification-menu-header"><span><strong>Notificações</strong><small>Atividades recentes do RH Controle</small></span><button className="notification-clear" disabled={!visibleNotifications.length} onClick={clearNotifications} title="Limpar notificações"><Trash2 size={13} /> Limpar</button></div><div className="notification-list">{visibleNotifications.length ? visibleNotifications.slice(0, 5).map(item => <article key={item.id}><i className={item.status.toLowerCase()} /><span><strong>{item.operation}</strong><small>{item.result}</small><time>{new Date(item.timestamp).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</time></span></article>) : <div className="notification-empty"><Bell size={20} /><strong>Nenhuma notificação</strong><small>As novas atividades aparecerão aqui.</small></div>}</div><button className="notification-history" onClick={() => navigate("history")}><History size={14} /> Ver histórico completo</button></div>}</div><div className="account-wrap" ref={accountRef}><button className="account-button" aria-expanded={accountOpen} aria-haspopup="menu" onClick={() => { setAccountOpen(value => !value); setNotificationsOpen(false); }}><span className="avatar">{user.name.split(" ").slice(0, 2).map(part => part[0]).join("")}</span><span><strong>{user.name}</strong><small>{user.role === "ADMINISTRADOR" ? "Administradora" : user.role}</small></span><ChevronDown size={15} /></button>{accountOpen && <div className="account-menu" role="menu"><div><strong>{user.name}</strong><small>{user.email}</small></div><button role="menuitem" onClick={() => navigate("settings")}>Minha conta</button><button role="menuitem" onClick={async () => { const supabase = createSupabaseBrowserClient(); await supabase.auth.signOut(); window.location.href = "/"; }}>Sair</button></div>}</div></div></header>
+      <header className="control-topbar"><div className="topbar-title"><button className="mobile-menu" onClick={() => setMobileOpen(true)}><Menu /></button><div><span>RH CONTROLE</span><h1>{active.label}</h1></div></div><div className="topbar-actions"><button className="theme-toggle-button" type="button" aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"} title={theme === "dark" ? "Tema claro" : "Tema escuro"} onClick={toggleTheme}>{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button><div className="notification-wrap" ref={notificationRef}><button className="notification-button" aria-label="Notificações" aria-expanded={notificationsOpen} aria-haspopup="dialog" onClick={() => { setNotificationsOpen(value => !value); setAccountOpen(false); }}><Bell size={18} />{visibleNotifications.length > 0 && <i aria-hidden="true" />}</button>{notificationsOpen && <div className="notification-menu" role="dialog" aria-label="Notificações recentes"><div className="notification-menu-header"><span><strong>Notificações</strong><small>Atividades recentes do RH Controle</small></span><button className="notification-clear" disabled={!visibleNotifications.length} onClick={clearNotifications} title="Limpar notificações"><Trash2 size={13} /> Limpar</button></div><div className="notification-list">{visibleNotifications.length ? visibleNotifications.slice(0, 5).map(item => <article key={item.id}><i className={item.status.toLowerCase()} /><span><strong>{item.operation}</strong><small>{item.result}</small><time>{new Date(item.timestamp).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</time></span></article>) : <div className="notification-empty"><Bell size={20} /><strong>Nenhuma notificação</strong><small>As novas atividades aparecerão aqui.</small></div>}</div><button className="notification-history" onClick={() => navigate("history")}><History size={14} /> Ver histórico completo</button></div>}</div><div className="account-wrap" ref={accountRef}><button className="account-button" aria-expanded={accountOpen} aria-haspopup="menu" onClick={() => { setAccountOpen(value => !value); setNotificationsOpen(false); }}><span className="avatar">{user.name.split(" ").slice(0, 2).map(part => part[0]).join("")}</span><span><strong>{user.name}</strong><small>{user.role === "ADMINISTRADOR" ? "Administradora" : user.role}</small></span><ChevronDown size={15} /></button>{accountOpen && <div className="account-menu" role="menu"><div><strong>{user.name}</strong><small>{user.email}</small></div><button role="menuitem" onClick={() => navigate("settings")}>Minha conta</button><button role="menuitem" onClick={async () => { const supabase = createSupabaseBrowserClient(); await supabase.auth.signOut(); window.location.href = "/"; }}>Sair</button></div>}</div></div></header>
       <div className="control-content">{children}</div>
     </main>
   </div>;

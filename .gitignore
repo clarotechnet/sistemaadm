@@ -42,3 +42,11 @@ supabase/.temp/
 /outputs/
 /work/
 *.tsbuildinfo
+
+# arquivos temporários de manutenção/diagnóstico gerados durante desenvolvimento
+/apply_*.mjs
+/patch_*.py
+/fix_*.py
+/tmp_*.py
+/verify_target_db.mjs
+/tmp/
