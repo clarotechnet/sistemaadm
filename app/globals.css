@@ -494,3 +494,120 @@ body{font-size:14px}.control-shell{min-height:100vh;display:flex}.control-sideba
 :root[data-theme='dark'] .employee-status-kpi.active{border-color:#c94b54;box-shadow:0 0 0 2px #c9181825}
 :root[data-theme='dark'] .employee-filter-summary{border-color:#30353b}
 @media(max-width:700px){.employee-status-kpis{grid-template-columns:1fr}.employee-status-kpi{min-height:76px}.employee-filter-summary{align-items:flex-start;flex-direction:column}}
+/* Correções específicas para Dark Mode na página de Usuários e Perfis */
+:root[data-theme="dark"] .profile-control select {
+  background: #111417 !important;
+  color: #eceff1 !important;
+  border-color: #363c43 !important;
+}
+
+:root[data-theme="dark"] .pending-section .section-header {
+  background: transparent !important;
+  border-color: #30353b;
+}
+
+:root[data-theme="dark"] .users-section-empty {
+  background: #181b1f;
+  border-color: var(--border);
+}
+
+:root[data-theme="dark"] .users-count-pill.success { background: #1e2d24; color: #41b77a; }
+:root[data-theme="dark"] .users-count-pill.warning { background: #352a1c; color: #e1a54a; }
+:root[data-theme="dark"] .users-count-pill.danger { background: #351a1e; color: #ff6b6b; }
+
+:root[data-theme="dark"] .presence-pill.online { background: #1e2d24; color: #41b77a; }
+:root[data-theme="dark"] .presence-pill.offline { background: #22262a; color: #a0a7ae; }
+:root[data-theme="dark"] .presence-pill.offline i { background: #646b73; }
+
+:root[data-theme="dark"] .users-kpi-icon.active { background: #1e2d24; color: #41b77a; }
+:root[data-theme="dark"] .users-kpi-icon.online { background: #18283a; color: #5ca1f1; }
+:root[data-theme="dark"] .users-kpi-icon.pending { background: #352a1c; color: #e1a54a; }
+
+:root[data-theme="dark"] .user-action.approve { background: #16241c !important; color: #41b77a !important; border-color: #20402b !important; }
+:root[data-theme="dark"] .user-action.approve:hover { background: #1d3025 !important; border-color: #366b47 !important; }
+
+:root[data-theme="dark"] .user-action.reject { background: #2a1418 !important; color: #ff6b6b !important; border-color: #4a232a !important; }
+:root[data-theme="dark"] .user-action.reject:hover { background: #3a1c22 !important; border-color: #6a323b !important; }
+
+:root[data-theme="dark"] .user-action.reopen { background: #1a1d21 !important; color: #b0bac5 !important; border-color: #333940 !important; }
+:root[data-theme="dark"] .user-action.reopen:hover { background: #22262b !important; border-color: #4c555f !important; }
+
+:root[data-theme="dark"] .users-kpi-card.attention {
+  background: #252014;
+  border-color: #443722;
+}
+
+/* Correções globais para Dark Mode */
+
+/* Section headers */
+:root[data-theme="dark"] .section-header {
+  background: #181b1f !important; /* Cor de card */
+  border-bottom: 1px solid #30343a !important;
+  color: #f1f3f5 !important;
+}
+
+/* Specific section header overrides */
+:root[data-theme="dark"] .pending-section .section-header,
+:root[data-theme="dark"] .users-section-empty,
+:root[data-theme="dark"] .compressor-settings,
+:root[data-theme="dark"] .dashboard-columns .panel, /* Dashboard panels */
+:root[data-theme="dark"] .metric-card { /* Dashboard metrics */
+  background: #181b1f !important;
+  border-color: #30343a !important;
+}
+
+/* Fix for buttons and inputs that were missed or need stronger overrides */
+:root[data-theme="dark"] .button.secondary,
+:root[data-theme="dark"] .pagination button,
+:root[data-theme="dark"] .data-table select {
+  background: #1a1e22 !important;
+  color: #d5d9de !important;
+  border-color: #3a4047 !important;
+}
+
+/* Labels and Small text */
+:root[data-theme="dark"] .nav-label,
+:root[data-theme="dark"] .privacy-note,
+:root[data-theme="dark"] .metric-label,
+:root[data-theme="dark"] .field small {
+  color: #a0a7ae !important;
+}
+
+/* Tables */
+:root[data-theme="dark"] .data-table th {
+  background: #181b1f !important;
+  color: #a0a7ae !important;
+  border-bottom: 1px solid #30343a !important;
+}
+
+:root[data-theme="dark"] .data-table tr:hover {
+  background: #252a30 !important;
+}
+
+/* Documentos dos Funcionários */
+:root[data-theme="dark"] .documents-security-note {
+  background: #14231b;
+  color: #72d6a1;
+  border-color: #294f38;
+}
+
+:root[data-theme="dark"] .documents-security-note small {
+  color: #a4b7aa;
+}
+
+:root[data-theme="dark"] .documents-toolbar {
+  background: #181b1f;
+  border-color: #30353b;
+}
+
+:root[data-theme="dark"] .documents-toolbar > label > span {
+  color: #a0a7ae;
+}
+
+:root[data-theme="dark"] .documents-toolbar input[type="month"],
+:root[data-theme="dark"] .documents-toolbar > label > select {
+  background: #111417;
+  color: #eceff1;
+  border-color: #363c43;
+  color-scheme: dark;
+}
