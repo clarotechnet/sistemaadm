@@ -58,8 +58,7 @@ jobs:
           FTP_USERNAME: ${{ secrets.HOSTINGER_FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
         run: |
-          EXPECTED_URL="https://kdbnheeosaptxpwkmjbz.supabase.co"
-          if [[ "${RH_URL%/}" == "$EXPECTED_URL" && -n "$RH_KEY" && -n "$FTP_SERVER" && -n "$FTP_USERNAME" && -n "$FTP_PASSWORD" ]]; then
+          if [[ "$RH_URL" =~ ^https://[a-z0-9]+\.supabase\.co/?$ && -n "$RH_KEY" && -n "$FTP_SERVER" && -n "$FTP_USERNAME" && -n "$FTP_PASSWORD" ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"

@@ -611,3 +611,112 @@ body{font-size:14px}.control-shell{min-height:100vh;display:flex}.control-sideba
   border-color: #363c43;
   color-scheme: dark;
 }
+
+
+/* Benefícios · Agregamento */
+.benefits-page .tool-card em{display:flex;align-items:center;gap:5px}
+.section-return{display:flex;align-items:center;gap:16px}.section-return>div{display:flex;flex-direction:column}.section-return h3{margin:0;font-size:16px}.section-return p{margin:3px 0 0;color:#777;font-size:9px}
+.section-return .back-link{flex:0 0 auto}.benefits-tabs{margin-bottom:0}.benefits-tabs button{display:flex;align-items:center;gap:6px}.benefits-tabs button svg{width:15px}
+.section-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.aggregation-base-surface{overflow:visible}.aggregation-toolbar{display:grid;grid-template-columns:minmax(250px,1.5fr) minmax(120px,.6fr) minmax(140px,.7fr) minmax(145px,.7fr) auto;gap:9px;align-items:center}
+.aggregation-toolbar .search-box{width:100%;min-width:0}.aggregation-toolbar select{height:38px;border:1px solid #ddd;border-radius:7px;background:#fff;padding:0 10px;color:#333;font-size:9px;min-width:0}
+.aggregation-table{min-width:1080px}.aggregation-monthly-table{min-width:1180px}.table-subline{display:block;margin-top:3px;color:#8a8a8a;font-size:7px;line-height:1.35}
+.aggregation-notes-cell{max-width:230px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#666}
+.table-edit-button{width:31px;height:31px;border:1px solid #ddd;border-radius:7px;background:#fff;color:#555;display:grid;place-items:center}.table-edit-button:hover{border-color:#d2a4a4;color:var(--primary);background:#fff8f8}
+.aggregation-editor{margin:0 14px 14px;padding:14px;border:1px solid #e2e2e2;border-radius:9px;background:#fbfbfb}.aggregation-editor-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.aggregation-editor-title>div{display:flex;flex-direction:column}.aggregation-editor-title strong{font-size:11px}.aggregation-editor-title small{margin-top:3px;color:#777;font-size:8px}
+.aggregation-editor-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.aggregation-editor .field{margin:0}.aggregation-editor .field-wide{grid-column:span 2}.aggregation-editor .field-full{grid-column:1/-1}.aggregation-editor textarea{width:100%;min-height:64px;resize:vertical;border:1px solid #ddd;border-radius:7px;background:#fff;color:#333;padding:9px 10px;font:inherit;font-size:9px}
+.aggregation-month-header{padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:14px}.aggregation-month-control{display:flex;align-items:center;gap:10px}.aggregation-month-control>div{min-width:150px;text-align:center;display:flex;flex-direction:column}.aggregation-month-control small{font-size:7px;font-weight:800;color:#777;letter-spacing:.05em}.aggregation-month-control strong{margin-top:3px;font-size:12px;text-transform:capitalize}.aggregation-month-control .icon-button{position:static;width:34px;height:34px}
+.aggregation-warning{margin:0;align-items:flex-start}.aggregation-warning>span{display:flex;flex-direction:column;gap:3px}.aggregation-warning strong{font-size:8px}.aggregation-warning span{font-size:8px;line-height:1.45}
+.loading-surface{min-height:90px;display:flex;align-items:center;justify-content:center;gap:9px;color:#777;font-size:9px}.spin{animation:spin .8s linear infinite}
+@media(max-width:1100px){.aggregation-toolbar{grid-template-columns:1fr 1fr}.aggregation-toolbar .search-box{grid-column:1/-1}.aggregation-toolbar>span{justify-self:end}.aggregation-editor-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.aggregation-editor .field-wide{grid-column:span 2}.aggregation-month-header{align-items:flex-start}.section-actions{justify-content:flex-start}}
+@media(max-width:700px){.section-return{align-items:flex-start;flex-direction:column;gap:8px}.benefits-tabs{overflow:auto}.benefits-tabs button{min-width:165px}.section-actions{width:100%}.section-actions .button{flex:1}.aggregation-toolbar{grid-template-columns:1fr}.aggregation-toolbar .search-box{grid-column:auto}.aggregation-toolbar>span{justify-self:start}.aggregation-editor{margin:0 10px 12px}.aggregation-editor-title{align-items:flex-start;flex-direction:column}.aggregation-editor-grid{grid-template-columns:1fr}.aggregation-editor .field-wide,.aggregation-editor .field-full{grid-column:auto}.aggregation-month-header{flex-direction:column}.aggregation-month-header>.button{width:100%}.aggregation-month-control{width:100%;justify-content:space-between}.aggregation-month-control>div{min-width:0;flex:1}}
+
+:root[data-theme="dark"] .aggregation-toolbar select,
+:root[data-theme="dark"] .aggregation-editor textarea{background:#111417;color:#eceff1;border-color:#363c43}
+:root[data-theme="dark"] .aggregation-editor{background:#14171a;border-color:#343940}
+:root[data-theme="dark"] .table-edit-button{background:#181b1f;color:#d8dce1;border-color:#3a4047}
+:root[data-theme="dark"] .table-edit-button:hover{background:#24282d;color:#ff6b6b;border-color:#5a4040}
+:root[data-theme="dark"] .aggregation-notes-cell{color:#b6bcc3}
+
+/* Benefícios independente · Agregamento */
+.benefit-module-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.benefit-module-tabs>button{display:flex;align-items:center;gap:12px;text-align:left;padding:16px;border:1px solid #ddd;border-radius:10px;background:#fff;color:#222;cursor:pointer}
+.benefit-module-tabs>button>span{display:flex;flex-direction:column;gap:3px}.benefit-module-tabs strong{font-size:12px}.benefit-module-tabs small{font-size:8px;color:#777}
+.benefit-module-tabs>button.active{border-color:#e31a1a;background:#fff7f7;color:#c81313;box-shadow:0 4px 14px rgba(190,20,20,.08)}
+.benefit-inner-tabs{margin:0}.aggregation-edit-card{overflow:hidden}.aggregation-form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:14px}
+.aggregation-form-grid .field{margin:0}.aggregation-notes{grid-column:span 2}.aggregation-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 12px}
+.aggregation-toolbar .search-box{flex:1 1 250px}.aggregation-toolbar>select{height:38px;border:1px solid #ddd;border-radius:7px;background:#fff;padding:0 10px;font-size:9px;min-width:135px}
+.aggregation-base-actions{display:flex;align-items:center;gap:8px;margin-left:auto}.aggregation-base-actions .button.disabled{opacity:.55;pointer-events:none}
+.aggregation-competence{height:38px;display:flex;align-items:center;gap:7px;border:1px solid #ddd;border-radius:7px;padding:0 9px;background:#fff}.aggregation-competence input{border:0;outline:0;background:transparent;font:inherit;font-size:9px}
+.aggregation-table{min-width:1100px}.aggregation-table.monthly{min-width:1050px}.aggregation-table td>small{display:block;margin-top:3px;color:#888;font-size:7px}.manual-override{color:#b56b00!important}.aggregation-notes-cell{max-width:230px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.aggregation-rule{align-items:flex-start}.aggregation-rule span{display:flex;flex-direction:column;gap:2px}
+:root[data-theme="dark"] .benefit-module-tabs>button,:root[data-theme="dark"] .aggregation-toolbar>select,:root[data-theme="dark"] .aggregation-competence{background:#181b1f;color:#eceff1;border-color:#363c43}
+:root[data-theme="dark"] .benefit-module-tabs>button.active{background:#2a181b;border-color:#704044;color:#ff6b6b}:root[data-theme="dark"] .benefit-module-tabs small{color:#a0a7ae}:root[data-theme="dark"] .aggregation-competence input{color:#eceff1;color-scheme:dark}
+@media(max-width:1050px){.aggregation-form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.aggregation-notes{grid-column:span 2}.aggregation-base-actions{width:100%;margin-left:0}.aggregation-base-actions .button{flex:1}}
+@media(max-width:700px){.benefit-module-tabs{grid-template-columns:1fr}.aggregation-form-grid{grid-template-columns:1fr}.aggregation-notes{grid-column:auto}.aggregation-toolbar>select,.aggregation-toolbar .search-box,.aggregation-competence{width:100%}.aggregation-base-actions{flex-direction:column}.aggregation-base-actions .button{width:100%}}
+
+/* Agregamento mensal · alertas e relatório de pagamento */
+.metric-card-button{appearance:none;text-align:left;color:inherit;font:inherit;cursor:pointer;width:100%}
+.metric-card-button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 7px 18px #00000010}
+.metric-card-button.active{border-color:#d81b1b;box-shadow:0 0 0 2px rgba(216,27,27,.10),0 7px 18px #00000010}
+.metric-card-button:disabled{cursor:default;opacity:.82}
+.aggregation-monthly-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+:root[data-theme="dark"] .metric-card-button.active{border-color:#8a4a4a;box-shadow:0 0 0 2px rgba(255,107,107,.12)}
+@media(max-width:1050px){.aggregation-monthly-actions{width:100%;margin-left:0;justify-content:flex-start}.aggregation-monthly-actions .button{flex:1}}
+@media(max-width:700px){.aggregation-monthly-actions{flex-direction:column;align-items:stretch}.aggregation-monthly-actions .button,.aggregation-monthly-actions .aggregation-competence{width:100%}}
+
+/* Benefícios · Veículos */
+.vehicle-add-card{overflow:hidden}.vehicle-add-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:14px}
+.vehicle-add-card .form-actions{padding:0 14px 14px}.vehicle-toolbar .search-box{min-width:260px}
+.vehicle-actions{display:flex;align-items:center;gap:8px;margin-left:auto}.vehicle-table{min-width:1320px}
+.vehicle-inline-input{height:32px;border:1px solid #d8d8d8;border-radius:6px;background:#fff;color:#333;padding:0 8px;font-size:9px;outline:none}
+.vehicle-inline-input:focus{border-color:var(--primary);box-shadow:0 0 0 2px #c9181812}.vehicle-inline-input.plate{width:92px;text-transform:uppercase}
+.vehicle-inline-input.year{width:78px}.vehicle-inline-input.model{width:190px;text-transform:uppercase}.vehicle-row-actions{display:flex;gap:5px}
+.vehicle-row-actions .save:hover{color:var(--success);border-color:#9ac9ad}.vehicle-row-actions .delete:hover{color:var(--primary);border-color:#e7aaaa}
+:root[data-theme="dark"] .vehicle-inline-input{background:#111417;color:#eceff1;border-color:#3a4047}
+@media(max-width:1050px){.vehicle-add-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.vehicle-actions{width:100%;margin-left:0}.vehicle-actions .button{flex:1}}
+@media(max-width:700px){.vehicle-add-grid{grid-template-columns:1fr}.vehicle-actions{flex-direction:column}.vehicle-actions .button{width:100%}}
+
+/* Veículos · layout compacto para caber integralmente no desktop */
+.vehicle-table{width:100%;min-width:0;table-layout:fixed}
+.vehicle-table th,.vehicle-table td{padding-left:8px;padding-right:8px}
+.vehicle-table th:nth-child(1){width:25%}
+.vehicle-table th:nth-child(2){width:11%}
+.vehicle-table th:nth-child(3){width:6%}
+.vehicle-table th:nth-child(4){width:8%}
+.vehicle-table th:nth-child(5){width:8%}
+.vehicle-table th:nth-child(6){width:9%}
+.vehicle-table th:nth-child(7){width:7%}
+.vehicle-table th:nth-child(8){width:17%}
+.vehicle-table th:nth-child(9){width:9%}
+.vehicle-person-cell{white-space:normal;line-height:1.25;overflow:hidden}
+.vehicle-person-cell strong{display:block;white-space:normal;overflow-wrap:anywhere}
+.vehicle-person-cell small{display:block!important;margin-top:4px!important;color:#8f98a1!important;font-size:7px!important;white-space:normal}
+.vehicle-inline-input{width:100%;min-width:0;padding-left:7px;padding-right:7px}
+.vehicle-inline-input.plate,.vehicle-inline-input.year,.vehicle-inline-input.model{width:100%}
+.vehicle-row-actions{gap:4px;justify-content:flex-start}
+.vehicle-row-actions .table-edit-button{width:30px;height:30px;min-width:30px;padding:0}
+.sidebar-collapsed .control-content{max-width:none;padding-left:20px;padding-right:20px}
+.sidebar-collapsed .vehicle-toolbar{gap:7px}
+.sidebar-collapsed .vehicle-toolbar .search-box{flex-basis:280px;min-width:220px}
+.sidebar-collapsed .vehicle-toolbar>select{min-width:120px}
+@media(max-width:1180px) and (min-width:901px){
+  .vehicle-table th,.vehicle-table td{padding-left:6px;padding-right:6px}
+  .vehicle-table th:nth-child(1){width:23%}
+  .vehicle-table th:nth-child(2){width:12%}
+  .vehicle-table th:nth-child(3){width:7%}
+  .vehicle-table th:nth-child(4){width:8%}
+  .vehicle-table th:nth-child(5){width:9%}
+  .vehicle-table th:nth-child(6){width:9%}
+  .vehicle-table th:nth-child(7){width:7%}
+  .vehicle-table th:nth-child(8){width:17%}
+  .vehicle-table th:nth-child(9){width:8%}
+}
+
+
+/* Agregamento mensal · manutenção de veículo */
+.aggregation-table.monthly{min-width:1160px}
+.maintenance-days-input{width:54px;height:30px;border:1px solid #d8d8d8;border-radius:6px;background:#fff;color:#333;text-align:center;font-size:9px;font-weight:750;outline:none;padding:0 4px}
+.maintenance-days-input:focus{border-color:var(--primary);box-shadow:0 0 0 2px #c9181812}
+.maintenance-days-input:disabled{opacity:.55;cursor:wait}
+:root[data-theme="dark"] .maintenance-days-input{background:#111417;color:#eceff1;border-color:#3a4047}
+@media(max-width:1180px){.aggregation-table.monthly{min-width:1100px}.maintenance-days-input{width:48px}}

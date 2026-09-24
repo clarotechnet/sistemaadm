@@ -30,6 +30,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+.env_local
 !.env.example
 
 # vercel
@@ -48,5 +49,6 @@ supabase/.temp/
 /patch_*.py
 /fix_*.py
 /tmp_*.py
+/tmp_*.mjs
 /verify_target_db.mjs
 /tmp/

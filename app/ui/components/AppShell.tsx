@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, ChevronDown, FileBarChart, FileStack, FolderLock, Gauge, History, Menu, Moon, PanelLeftClose, Settings, Sheet, ShieldCheck, Sun, Trash2, Users, X } from "lucide-react";
+import { Bell, ChevronDown, FileBarChart, FileStack, FolderLock, Gauge, Gift, History, Menu, Moon, PanelLeftClose, Settings, Sheet, ShieldCheck, Sun, Trash2, Users, X } from "lucide-react";
 import { useApp } from "../state/AppContext";
 import { createSupabaseBrowserClient } from "../../../src/lib/supabase/client";
+import { BrandLogo } from "./BrandLogo";
 
-export type AppRoute = "dashboard" | "payroll" | "documents" | "pdfs" | "reports" | "history" | "users" | "settings";
+export type AppRoute = "dashboard" | "payroll" | "documents" | "pdfs" | "reports" | "history" | "users" | "benefits" | "settings";
 const routes: { id: AppRoute; label: string; icon: typeof Gauge; roles?: string[] }[] = [
   { id: "dashboard", label: "Dashboard", icon: Gauge }, { id: "payroll", label: "Dados da Folha", icon: Sheet, roles: ["ADMINISTRADOR", "RH"] },
   { id: "documents", label: "Documentos RH", icon: FolderLock },
   { id: "pdfs", label: "PDFs", icon: FileStack, roles: ["ADMINISTRADOR", "RH"] }, { id: "reports", label: "Relatórios", icon: FileBarChart },
   { id: "history", label: "Histórico", icon: History }, { id: "users", label: "Usuários", icon: Users, roles: ["ADMINISTRADOR"] },
+  { id: "benefits", label: "Benefícios", icon: Gift, roles: ["ADMINISTRADOR", "RH"] },
   { id: "settings", label: "Configurações", icon: Settings, roles: ["ADMINISTRADOR"] },
 ];
 
@@ -62,7 +64,7 @@ export function AppShell({ route, onNavigate, children }: { route: AppRoute; onN
   return <div className={`control-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
     {mobileOpen && <button className="mobile-overlay" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
     <aside className={`control-sidebar ${mobileOpen ? "mobile-open" : ""}`}>
-      <div className="control-brand"><img className="company-logo sidebar-company-logo" src="/logo-empresa-ui.png" alt="Logo da empresa" /><div><strong>RH Controle</strong><small>Gestão administrativa</small></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
+      <div className="control-brand"><BrandLogo size={48} className="sidebar-company-logo" /><div><strong>RH Controle</strong><small>Gestão administrativa</small></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
       <div className="sidebar-section-label">MENU PRINCIPAL</div>
       <nav>{routes.filter(item => !item.roles || item.roles.includes(user.role)).map(item => <button className={item.id === route ? "active" : ""} key={item.id} onClick={() => navigate(item.id)} title={collapsed ? item.label : undefined}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
       <div className="sidebar-spacer" />

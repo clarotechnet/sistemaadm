@@ -27,6 +27,35 @@ export const employeeSyncRuns = pgTable("employee_sync_runs", {
   errorMessage:text("error_message"), startedAt:timestamp("started_at",{withTimezone:true}).notNull().defaultNow(), completedAt:timestamp("completed_at",{withTimezone:true}),
 },table=>[index("idx_employee_sync_runs_started").on(table.startedAt)]);
 
+export const benefitAggregationBase = pgTable("benefit_aggregation_base", {
+  id:uuid("id").primaryKey().defaultRandom(), sourceLabel:text("source_label").notNull().default(""), company:text("company").notNull().default(""), city:text("city").notNull().default(""),
+  employeeName:text("employee_name").notNull(), cpf:text("cpf").notNull(), bank:text("bank").notNull().default(""), baseValue:numeric("base_value",{precision:12,scale:2}).notNull().default("0"),
+  notes:text("notes").notNull().default(""), employeeId:uuid("employee_id").references(()=>employees.id), source:text("source").notNull().default("MANUAL"), activeOverride:boolean("active_override"),
+  createdBy:uuid("created_by").references(()=>profiles.id), updatedBy:uuid("updated_by").references(()=>profiles.id), createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(), updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+},table=>[uniqueIndex("uq_benefit_aggregation_base_cpf").on(table.cpf),index("idx_benefit_aggregation_base_company_city").on(table.company,table.city),index("idx_benefit_aggregation_base_employee").on(table.employeeId)]);
+export const benefitAggregationEvents = pgTable("benefit_aggregation_events", {
+  id:uuid("id").primaryKey().defaultRandom(), competence:date("competence").notNull(), aggregationId:uuid("aggregation_id").notNull().references(()=>benefitAggregationBase.id),
+  employeeId:uuid("employee_id").references(()=>employees.id), cpf:text("cpf").notNull(), eventType:text("event_type").notNull(), source:text("source").notNull().default("QUARK"), sourceEventId:text("source_event_id"),
+  startDate:date("start_date").notNull(), endDate:date("end_date").notNull(), days:numeric("days",{precision:8,scale:2}).notNull().default("0"), hours:numeric("hours",{precision:8,scale:2}).notNull().default("0"),
+  description:text("description").notNull().default(""), createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+},table=>[index("idx_benefit_aggregation_events_competence").on(table.competence),index("idx_benefit_aggregation_events_cpf").on(table.cpf),index("idx_benefit_aggregation_events_aggregation").on(table.aggregationId,table.competence)]);
+
+export const benefitAggregationMonthly = pgTable("benefit_aggregation_monthly", {
+  id:uuid("id").primaryKey().defaultRandom(), competence:date("competence").notNull(), aggregationId:uuid("aggregation_id").notNull().references(()=>benefitAggregationBase.id),
+  employeeId:uuid("employee_id").references(()=>employees.id), cpf:text("cpf").notNull(), employeeName:text("employee_name").notNull(), company:text("company").notNull().default(""), city:text("city").notNull().default(""),
+  baseValue:numeric("base_value",{precision:12,scale:2}).notNull().default("0"), employmentStatus:text("employment_status").notNull().default("NAO_LOCALIZADO"),
+  admissionDate:date("admission_date"), terminationDate:date("termination_date"), absenceDays:numeric("absence_days",{precision:8,scale:2}).notNull().default("0"),
+  medicalDays:numeric("medical_days",{precision:8,scale:2}).notNull().default("0"), vacationDays:numeric("vacation_days",{precision:8,scale:2}).notNull().default("0"),
+  employmentDays:numeric("employment_days",{precision:8,scale:2}).notNull().default("30"), payableDays:numeric("payable_days",{precision:8,scale:2}).notNull().default("30"),
+  amountDue:numeric("amount_due",{precision:12,scale:2}).notNull().default("0"), calculationNote:text("calculation_note").notNull().default(""), syncedAt:timestamp("synced_at",{withTimezone:true}).notNull().defaultNow(),
+},table=>[uniqueIndex("uq_benefit_aggregation_monthly_competence").on(table.competence,table.aggregationId),index("idx_benefit_aggregation_monthly_cpf").on(table.cpf),index("idx_benefit_aggregation_monthly_competence").on(table.competence)]);
+export const benefitAggregationSyncRuns = pgTable("benefit_aggregation_sync_runs", {
+  id:uuid("id").primaryKey().defaultRandom(), competence:date("competence").notNull(), status:text("status").notNull(), triggeredBy:uuid("triggered_by").notNull().references(()=>profiles.id),
+  triggeredByName:text("triggered_by_name").notNull(), processedCount:integer("processed_count").notNull().default(0), absenceEvents:integer("absence_events").notNull().default(0),
+  medicalEvents:integer("medical_events").notNull().default(0), vacationEvents:integer("vacation_events").notNull().default(0), warningMessage:text("warning_message"), errorMessage:text("error_message"),
+  startedAt:timestamp("started_at",{withTimezone:true}).notNull().defaultNow(), completedAt:timestamp("completed_at",{withTimezone:true}),
+},table=>[index("idx_benefit_aggregation_sync_runs_started").on(table.startedAt)]);
+
 export const roles = pgTable("roles", { id: uuid("id").primaryKey(), name: text("name").notNull().unique(), description: text("description").notNull() });
 export const permissions = pgTable("permissions", { id: uuid("id").primaryKey(), key: text("key").notNull().unique(), description: text("description").notNull() });
 export const rolePermissions = pgTable("role_permissions", { roleId:uuid("role_id").notNull().references(()=>roles.id), permissionId:uuid("permission_id").notNull().references(()=>permissions.id) });
@@ -35,4 +64,5 @@ export const payrollRecords = pgTable("payroll_records", { id:uuid("id").primary
 export const processingJobs = pgTable("processing_jobs", { id:uuid("id").primaryKey(),userId:uuid("user_id").notNull().references(()=>profiles.id),type:text("type").notNull(),fileName:text("file_name"),status:text("status").notNull(),processedCount:integer("processed_count").default(0),okCount:integer("ok_count").default(0),divergentCount:integer("divergent_count").default(0),missingCount:integer("missing_count").default(0),createdAt:text("created_at").notNull(),completedAt:text("completed_at") },table=>[index("idx_processing_jobs_user_created").on(table.userId,table.createdAt),index("idx_processing_jobs_type_status").on(table.type,table.status)]);
 export const comparisonResults = pgTable("comparison_results", { id:uuid("id").primaryKey(),jobId:uuid("job_id").notNull().references(()=>processingJobs.id),cpfHash:text("cpf_hash").notNull(),status:text("status").notNull(),payrollValue:doublePrecision("payroll_value"),referenceValue:doublePrecision("reference_value"),difference:doublePrecision("difference") });export const pdfJobs = pgTable("pdf_jobs", { id:uuid("id").primaryKey(),jobId:uuid("job_id").notNull().references(()=>processingJobs.id),tool:text("tool").notNull(),fileCount:integer("file_count").notNull(),createdAt:text("created_at").notNull() });
 export const benefitJobs = pgTable("benefit_jobs", { id:uuid("id").primaryKey(),jobId:uuid("job_id").notNull().references(()=>processingJobs.id),benefitType:text("benefit_type").notNull(),configuration:text("configuration").notNull().default("{}") });
+
 export const auditLogs = pgTable("audit_logs", { id:uuid("id").primaryKey(),userId:uuid("user_id").notNull().references(()=>profiles.id),userName:text("user_name").notNull(),operation:text("operation").notNull(),module:text("module").notNull(),result:text("result").notNull(),status:text("status").notNull(),fileName:text("file_name"),processedCount:integer("processed_count"),okCount:integer("ok_count"),divergentCount:integer("divergent_count"),missingCount:integer("missing_count"),createdAt:text("created_at").notNull() },table=>[index("idx_audit_logs_created").on(table.createdAt),index("idx_audit_logs_user_created").on(table.userId,table.createdAt)]);

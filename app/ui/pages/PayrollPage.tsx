@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Boxes, Bus, CalendarDays, Check, Download, FileSpreadsheet, HeartPulse, Search, Stethoscope, Trash2, Upload, UsersRound } from "lucide-react";
+import { CalendarDays, Check, Download, FileSpreadsheet, HeartPulse, Search, Stethoscope, Trash2, Upload } from "lucide-react";
 import type { ComparisonRow } from "../../../src/types";
 import { readExcel, exportComparisonExcel } from "../../../src/services/excel";
 import { removePayrollComparison, removePayrollMonth, savePayrollComparison, savePayrollMonth } from "../../../src/services/browser-backend";
@@ -13,8 +13,8 @@ import { FileDropzone } from "../components/FileDropzone";
 import { ConfirmationModal, EmptyState, MetricCard, ProcessingLog, StatusBadge } from "../components/Common";
 import { useApp } from "../state/AppContext";
 
-type Tab = "overview" | "health" | "dental" | "benefits" | "imports";
-const tabs: { id: Tab; label: string }[] = [{ id:"overview",label:"Visão geral"},{id:"health",label:"Plano de Saúde"},{id:"dental",label:"Plano Odontológico"},{id:"benefits",label:"Benefícios"},{id:"imports",label:"Importações"}];
+type Tab = "overview" | "health" | "dental" | "imports";
+const tabs: { id: Tab; label: string }[] = [{ id:"overview",label:"Visão geral"},{id:"health",label:"Plano de Saúde"},{id:"dental",label:"Plano Odontológico"},{id:"imports",label:"Importações"}];
 
 export function PayrollPage() {
   const app = useApp();
@@ -29,7 +29,6 @@ export function PayrollPage() {
     {tab === "imports" && <PayrollImport onDone={() => setTab("overview")} />}
     {tab === "health" && <PlanComparison kind="health" />}
     {tab === "dental" && <PlanComparison kind="dental" />}
-    {tab === "benefits" && <Benefits />}
     <ConfirmationModal open={removeOpen} danger title="Remover esta competência do banco?" description="A folha e os comparativos de Saúde/Odonto deste mês serão removidos para toda a equipe. O arquivo original privado, quando existir, segue sua própria política de retenção." confirmLabel="Remover competência" onClose={() => setRemoveOpen(false)} onConfirm={() => { const current=app.activePayroll; if(!current)return; void removePayrollMonth(current.competence).then(async()=>{app.addAudit({operation:"Removeu competência da folha",module:"Folha",result:`Competência ${current.competence} removida`,status:"AVISO"});app.toast("success","Competência removida");await app.refreshPayrollMonths();if(!app.payrollMonths.length)setTab("imports");}).catch(error=>app.toast("error","Não foi possível remover a competência",error instanceof Error?error.message:undefined)); }} />
   </>;
 }
@@ -83,10 +82,3 @@ function PlanComparison({ kind }: { kind: ComparisonKind }) {
 }
 
 function ComparisonTable({rows,valueLabel}:{rows:ComparisonRow[];valueLabel:string}){const{settings}=useApp();return <div className="table-scroll"><table className="data-table"><thead><tr><th>Nome</th><th>CPF</th><th className="right">{valueLabel}</th><th className="right">Referência</th><th className="right">Diferença</th><th className="right">Líquido</th><th className="center">Colunas</th><th>Status</th></tr></thead><tbody>{rows.map(row=><tr className={row.status==="DIVERGENTE"?"row-danger":row.status.includes("NÃO LOCALIZADO")?"row-warning":""} key={row.id}><td><strong>{row.name}</strong></td><td className="mono">{formatCpf(row.cpf,settings.maskCpf)}</td><td className="right">{formatMoney(row.payrollValue)}</td><td className="right">{formatMoney(row.referenceValue)}</td><td className={`right ${row.difference&&Math.abs(row.difference)>.01?"negative":"positive"}`}>{formatMoney(row.difference)}</td><td className="right">{formatMoney(row.liquid)}</td><td className="center">{row.columnCount}</td><td><StatusBadge status={row.status}/></td></tr>)}</tbody></table>{!rows.length&&<div className="table-empty">Nenhum registro corresponde aos filtros aplicados.</div>}</div>}
-
-function Benefits(){
-  const app=useApp();const[selected,setSelected]=useState<string|null>(null);const[files,setFiles]=useState<File[]>([]);const[analysis,setAnalysis]=useState<string[]>([]);const[busy,setBusy]=useState(false);
-  const cards=[{id:"aggregation",label:"Agregamento",desc:"Importe e mapeie eventos agregados.",icon:<Boxes/>},{id:"transport",label:"Vale Transporte",desc:"Controle e confira descontos de transporte.",icon:<Bus/>},{id:"other",label:"Outros Benefícios",desc:"Processador genérico para novos benefícios.",icon:<UsersRound/>}];
-  const analyze=async()=>{setBusy(true);try{const results:string[]=[];for(const file of files){const workbook=await readExcel(file);for(const sheet of workbook.sheets){const recognized=sheet.headers.filter(header=>["NOME","COLABORADOR","CPF","DATA","VALOR","TIPO","COMPETENCIA","STATUS"].some(alias=>header.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(alias)));results.push(`${file.name} · aba ${sheet.name}: ${sheet.rows.length} registros; campos ${recognized.join(", ")||"não mapeados"}.`);}}setAnalysis(results);app.addAudit({operation:"Analisou estrutura de benefício",module:"Benefícios",result:`${files.length} arquivo(s) analisado(s)`,status:results.some(item=>item.includes("não mapeados"))?"AVISO":"SUCESSO",processedCount:files.length});app.toast("success","Estrutura analisada","Confira os campos reconhecidos antes de definir as regras do benefício.");}catch(error){app.toast("error","Falha ao analisar benefício",error instanceof Error?error.message:undefined)}finally{setBusy(false)}};
-  return <div className="stack-gap">{!selected?<div className="tool-card-grid benefit-grid">{cards.map(card=><button className="tool-card" key={card.id} onClick={()=>{setSelected(card.id);setFiles([]);setAnalysis([])}}><span>{card.icon}</span><strong>{card.label}</strong><p>{card.desc}</p><em>Abrir ferramenta →</em></button>)}</div>:<section className="surface import-surface"><div className="section-header"><div><button className="back-link" onClick={()=>setSelected(null)}>← Benefícios</button><h3>{cards.find(card=>card.id===selected)?.label}</h3><p>Processador modular com detecção de Nome, CPF, Data, Valor, Tipo, Competência e Status.</p></div></div><div className="import-form"><FileDropzone accept=".xls,.xlsx" multiple files={files} onFiles={setFiles}/><div className="inline-warning"><AlertTriangle/><span><strong>Mapeamento flexível</strong> As regras específicas deste benefício podem ser adicionadas sem alterar os comparativos existentes.</span></div>{analysis.length>0&&<ProcessingLog logs={analysis} progress={100}/>}<button className="button primary" disabled={!files.length||busy} onClick={analyze}>{busy?"Analisando...":"Analisar estrutura"}</button></div></section>}</div>
-}

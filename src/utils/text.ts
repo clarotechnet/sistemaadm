@@ -2,8 +2,24 @@ const LEGACY_REPLACEMENTS: Record<string, string> = {
   "þ": "ç", "Þ": "Ç", "Ò": "ã", "ò": "ã", "Æ": "Ã", "æ": "ã",
 };
 
+const UTF8_MOJIBAKE_REPLACEMENTS: Record<string,string> = {
+  "Ã¡":"á","Ã¢":"â","Ã£":"ã","Ã¤":"ä","Ã ":"à",
+  "Ã©":"é","Ãª":"ê","Ã«":"ë","Ã¨":"è",
+  "Ã­":"í","Ã®":"î","Ã¯":"ï","Ã¬":"ì",
+  "Ã³":"ó","Ã´":"ô","Ãµ":"õ","Ã¶":"ö","Ã²":"ò",
+  "Ãº":"ú","Ã»":"û","Ã¼":"ü","Ã¹":"ù","Ã§":"ç",
+  "Ã":"Á","Ã‚":"Â","Ãƒ":"Ã","Ã„":"Ä","Ã€":"À",
+  "Ã‰":"É","ÃŠ":"Ê","Ã‹":"Ë","Ãˆ":"È",
+  "Ã":"Í","ÃŽ":"Î","Ã":"Ï","ÃŒ":"Ì",
+  "Ã“":"Ó","Ã”":"Ô","Ã•":"Õ","Ã–":"Ö","Ã’":"Ò",
+  "Ãš":"Ú","Ã›":"Û","Ãœ":"Ü","Ã™":"Ù","Ã‡":"Ç",
+  "Â·":"·","Âº":"º","Âª":"ª","Â ":" ","Â":""
+};
+
 export function fixLegacyEncoding(value: unknown): string {
-  return String(value ?? "").replace(/[þÞÒòÆæ]/g, char => LEGACY_REPLACEMENTS[char] ?? char);
+  let text=String(value ?? "").replace(/[þÞÒòÆæ]/g, char => LEGACY_REPLACEMENTS[char] ?? char);
+  for(const [broken,fixed] of Object.entries(UTF8_MOJIBAKE_REPLACEMENTS))text=text.split(broken).join(fixed);
+  return text;
 }
 
 export function normalizeText(value: unknown): string {

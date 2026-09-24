@@ -1,5 +1,6 @@
 import type { ActivePayroll, AuditEntry, ComparisonRow, ComparisonStatus, FileRetentionMode, PayrollMonthOption, PayrollRecord, PlanComparisonState, RawFileUpload, Role, SystemSettings, UserProfile } from "../types";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
+import { fixLegacyEncoding } from "../utils/text";
 
 const isStaticHostinger = process.env.NEXT_PUBLIC_DEPLOY_TARGET === "static-hostinger";
 const bucket = "rh-private-files";
@@ -94,13 +95,13 @@ const rawFileFromRow = (row: RawFileRow): RawFileUpload => ({
   createdAt: row.created_at,
 });
 
-const payrollRecordFromRow=(row:PayrollRecordRow):PayrollRecord=>({ cpf:row.cpf,name:row.name,liquid:Number(row.liquid??0),healthTotal:Number(row.health_total??0),dentalTotal:Number(row.dental_total??0),healthColumns:Number(row.health_columns??0),dentalColumns:Number(row.dental_columns??0),sourceSheet:row.source_sheet??"" });
-const payrollFromRow=(row:PayrollImportRow):ActivePayroll=>({ id:row.id,fileName:row.file_name,fileSize:Number(row.file_size??0),competence:row.competence,importedAt:row.updated_at,importedBy:row.imported_by_name||"Usuário RH",records:(row.payroll_records??[]).map(payrollRecordFromRow).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")),logs:Array.isArray(row.logs)?row.logs.map(String):[] });
+const payrollRecordFromRow=(row:PayrollRecordRow):PayrollRecord=>({ cpf:row.cpf,name:fixLegacyEncoding(row.name),liquid:Number(row.liquid??0),healthTotal:Number(row.health_total??0),dentalTotal:Number(row.dental_total??0),healthColumns:Number(row.health_columns??0),dentalColumns:Number(row.dental_columns??0),sourceSheet:fixLegacyEncoding(row.source_sheet??"") });
+const payrollFromRow=(row:PayrollImportRow):ActivePayroll=>({ id:row.id,fileName:fixLegacyEncoding(row.file_name),fileSize:Number(row.file_size??0),competence:row.competence,importedAt:row.updated_at,importedBy:fixLegacyEncoding(row.imported_by_name||"Usuário RH"),records:(row.payroll_records??[]).map(payrollRecordFromRow).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")),logs:Array.isArray(row.logs)?row.logs.map(fixLegacyEncoding):[] });
 
 const comparisonFromRow=(row:ComparisonDbRow):PlanComparisonState=>({
-  rows:(row.payroll_comparison_rows??[]).map(item=>({id:item.cpf,cpf:item.cpf,name:item.name,payrollValue:item.payroll_value===null?null:Number(item.payroll_value),referenceValue:item.reference_value===null?null:Number(item.reference_value),difference:item.difference===null?null:Number(item.difference),liquid:item.liquid===null?null:Number(item.liquid),columnCount:Number(item.column_count??0),status:item.status} as ComparisonRow)).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")),
+  rows:(row.payroll_comparison_rows??[]).map(item=>({id:item.cpf,cpf:item.cpf,name:fixLegacyEncoding(item.name),payrollValue:item.payroll_value===null?null:Number(item.payroll_value),referenceValue:item.reference_value===null?null:Number(item.reference_value),difference:item.difference===null?null:Number(item.difference),liquid:item.liquid===null?null:Number(item.liquid),columnCount:Number(item.column_count??0),status:fixLegacyEncoding(item.status) as ComparisonStatus} as ComparisonRow)).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")),
   summary:{total:Number(row.total_count??0),ok:Number(row.ok_count??0),divergent:Number(row.divergent_count??0),missing:Number(row.missing_count??0),differenceTotal:Number(row.difference_total??0)},
-  processedAt:row.processed_at,fileName:row.reference_file_name,tolerance:Number(row.tolerance??0.01),processedBy:row.processed_by_name,
+  processedAt:row.processed_at,fileName:fixLegacyEncoding(row.reference_file_name),tolerance:Number(row.tolerance??0.01),processedBy:fixLegacyEncoding(row.processed_by_name),
 });
 
 async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -123,12 +124,11 @@ export async function updateOwnProfile(userId: string, payload: { name: string; 
     return;
   }
   const supabase = createSupabaseBrowserClient();
-  const { error } = await supabase.from("profiles").update({
-    full_name: payload.name.trim(),
-    department: payload.department.trim(),
-    job_title: payload.jobTitle.trim(),
-    updated_at: new Date().toISOString(),
-  }).eq("id", userId);
+  const { error } = await supabase.rpc("update_own_profile", {
+    p_full_name: payload.name.trim(),
+    p_department: payload.department.trim(),
+    p_job_title: payload.jobTitle.trim(),
+  });
   if (error) throw error;
 }
 
@@ -156,7 +156,7 @@ export async function listPayrollMonths():Promise<PayrollMonthOption[]>{
   const supabase=createSupabaseBrowserClient();
   const {data,error}=await supabase.from("payroll_imports").select("id,file_name,competence,record_count,updated_at,imported_by_name");
   if(error)throw error;
-  const months=((data??[]) as PayrollMonthRow[]).map(row=>({id:row.id,competence:row.competence,fileName:row.file_name,recordCount:Number(row.record_count??0),importedAt:row.updated_at,importedBy:row.imported_by_name||"Usuário RH"}));
+  const months=((data??[]) as PayrollMonthRow[]).map(row=>({id:row.id,competence:row.competence,fileName:fixLegacyEncoding(row.file_name),recordCount:Number(row.record_count??0),importedAt:row.updated_at,importedBy:fixLegacyEncoding(row.imported_by_name||"Usuário RH")}));
   return months.sort((a,b)=>{const [am,ay]=a.competence.split("/").map(Number);const [bm,by]=b.competence.split("/").map(Number);return (by*12+bm)-(ay*12+am)});
 }
 
