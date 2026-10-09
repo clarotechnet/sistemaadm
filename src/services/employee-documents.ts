@@ -67,22 +67,33 @@ function readableDatabaseError(error: { code?: string; message: string }) {
 
 export async function listEmployees(): Promise<Employee[]> {
   const supabase = createSupabaseBrowserClient();
-  const { data, error } = await supabase.from("employees").select("id,full_name,cpf,document_number,registration,department,job_title,status,source,external_id,external_unit_id,external_unit_name,external_team_id,external_team_name,admission_date,termination_date,last_synced_at,created_at,updated_at").order("full_name");
-  if (error) throw error;
-  return ((data ?? []) as EmployeeRow[]).map(employeeFromRow);
+  const pageSize = 1000;
+  const all: EmployeeRow[] = [];
+  for (let offset = 0; offset < 50000; offset += pageSize) {
+    const { data, error } = await supabase.from("employees")
+      .select("id,full_name,cpf,document_number,registration,department,job_title,status,source,external_id,external_unit_id,external_unit_name,external_team_id,external_team_name,admission_date,termination_date,last_synced_at,created_at,updated_at")
+      .order("full_name").order("id").range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const page = (data ?? []) as EmployeeRow[];
+    all.push(...page);
+    if (page.length < pageSize) return all.map(employeeFromRow);
+  }
+  throw new Error("O cadastro ultrapassou o limite de 50 mil funcionários. Contate o suporte.");
 }
 
 export async function saveEmployee(
-  payload: { name: string; cpf: string; department: string; status: EmployeeStatus },
+  payload: { name: string; cpf: string; department: string; status: EmployeeStatus; admissionDate?: string; terminationDate?: string },
   employeeId?: string,
 ): Promise<Employee> {
   const cpf = normalizeCpf(payload.cpf);
   if (payload.name.trim().length < 2) throw new Error("Informe o nome completo do funcionário.");
   if (!isValidCpf(cpf)) throw new Error("Informe um CPF válido para o funcionário.");
   if (payload.department.trim().length < 2) throw new Error("Informe o setor do funcionário.");
+  if (payload.admissionDate && payload.terminationDate && payload.terminationDate < payload.admissionDate) throw new Error("O desligamento não pode acontecer antes da admissão.");
   const supabase = createSupabaseBrowserClient();
   const values = {
     full_name: payload.name.trim(), cpf, department: payload.department.trim(), status: payload.status,
+    admission_date: payload.admissionDate || null, termination_date: payload.terminationDate || null,
   };
   const request = employeeId
     ? supabase.from("employees").update(values).eq("id", employeeId)
@@ -123,15 +134,20 @@ export async function listDocumentCategories(): Promise<DocumentCategory[]> {
   return ((data ?? []) as CategoryRow[]).map(categoryFromRow);
 }
 
-export async function listEmployeeDocuments(competence: string, trash = false): Promise<EmployeeDocument[]> {
+export async function listEmployeeDocuments(competence: string | null, trash = false): Promise<EmployeeDocument[]> {
   const supabase = createSupabaseBrowserClient();
-  let request = supabase.from("employee_documents").select("id,employee_id,category_id,competence,title,file_name,storage_path,mime_type,size_bytes,sha256,version,is_current,supersedes_document_id,review_status,notes,uploaded_by,uploaded_by_name,reviewed_by_name,reviewed_at,deleted_by_name,deleted_at,created_at,updated_at");
-  request = trash
-    ? request.not("deleted_at", "is", null).order("deleted_at", { ascending: false }).limit(300)
-    : request.eq("competence", `${competence}-01`).is("deleted_at", null).order("created_at", { ascending: false }).limit(1000);
-  const { data, error } = await request;
-  if (error) throw error;
-  return ((data ?? []) as DocumentRow[]).map(documentFromRow);
+  const pageSize = 1000;
+  const all: DocumentRow[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    let request = supabase.from("employee_documents").select("id,employee_id,category_id,competence,title,file_name,storage_path,mime_type,size_bytes,sha256,version,is_current,supersedes_document_id,review_status,notes,uploaded_by,uploaded_by_name,reviewed_by_name,reviewed_at,deleted_by_name,deleted_at,created_at,updated_at");
+    request = trash ? request.not("deleted_at", "is", null) : request.is("deleted_at", null);
+    if (competence) request = request.eq("competence", competence + "-01");
+    const { data, error } = await request.order(trash ? "deleted_at" : "created_at", { ascending: false }).order("id", { ascending: false }).range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const page = (data ?? []) as DocumentRow[];
+    all.push(...page);
+    if (page.length < pageSize) return all.map(documentFromRow);
+  }
 }
 
 export async function uploadEmployeeDocument(

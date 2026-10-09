@@ -7,12 +7,14 @@
       "esnext"
     ],
     "types": [
-      "@cloudflare/workers-types"
+      "@cloudflare/workers-types",
+      "vite/client"
     ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -36,6 +38,10 @@
   ],
   "exclude": [
     "node_modules",
+    "work",
+    "outputs",
+    "tmp",
+    ".wrangler",
     "examples/d1",
     "drizzle-d1-legacy",
     "supabase/functions"

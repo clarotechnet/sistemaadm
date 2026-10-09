@@ -196,6 +196,38 @@ export interface PayrollRecord {
   healthColumns: number;
   dentalColumns: number;
   sourceSheet: string;
+  audit?: PayrollAuditData;
+}
+
+// Optional so competencies imported before the audit module remain readable.
+export interface PayrollAuditEvent {
+  key: string;
+  label: string;
+  kind: "earning" | "deduction";
+  category: string;
+  value: number;
+}
+
+export interface PayrollAuditData {
+  version: 1;
+  baseSalary: number | null;
+  gross: number | null;
+  deductions: number | null;
+  liquid: number | null;
+  company: string;
+  unit: string;
+  costCenter: string;
+  department: string;
+  jobTitle: string;
+  registration: string;
+  internalId: string;
+  employmentStatus: string;
+  admissionDate: string | null;
+  terminationDate: string | null;
+  payrollType: string;
+  events: PayrollAuditEvent[];
+  occurrences: Array<{ sheet: string; row: number }>;
+  invalidFields: string[];
 }
 
 export interface ActivePayroll {

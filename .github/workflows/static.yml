@@ -24,6 +24,12 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
+      - name: Verificar TypeScript
+        run: npx tsc --noEmit
+
+      - name: Verificar dependências de produção
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Build e testes
         run: npm test
         env:
@@ -48,6 +54,12 @@ jobs:
       - name: Baixar código
         uses: actions/checkout@v4
 
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
       - name: Verificar configuração isolada
         id: config
         shell: bash
@@ -58,19 +70,8 @@ jobs:
           FTP_USERNAME: ${{ secrets.HOSTINGER_FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
         run: |
-          if [[ "$RH_URL" =~ ^https://[a-z0-9]+\.supabase\.co/?$ && -n "$RH_KEY" && -n "$FTP_SERVER" && -n "$FTP_USERNAME" && -n "$FTP_PASSWORD" ]]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Publicação bloqueada: confira os secrets FTP e o projeto Supabase exclusivo do RH Control."
-          fi
-
-      - name: Configurar Node.js
-        if: steps.config.outputs.enabled == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
+          node scripts/validate-production-env.mjs
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Instalar dependências
         if: steps.config.outputs.enabled == 'true'

@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, ChevronDown, FileBarChart, FileStack, FolderLock, Gauge, Gift, History, Menu, Moon, PanelLeftClose, Settings, Sheet, ShieldCheck, Sun, Trash2, Users, X } from "lucide-react";
+import { Bell, ChevronDown, ClipboardCheck, FileBarChart, FileStack, FolderLock, Gauge, Gift, History, Menu, Moon, PanelLeftClose, Settings, Sheet, ShieldCheck, Sun, Trash2, Users, X } from "lucide-react";
 import { useApp } from "../state/AppContext";
 import { createSupabaseBrowserClient } from "../../../src/lib/supabase/client";
 import { BrandLogo } from "./BrandLogo";
 
-export type AppRoute = "dashboard" | "payroll" | "documents" | "pdfs" | "reports" | "history" | "users" | "benefits" | "settings";
+export type AppRoute = "dashboard" | "payroll" | "conferencia" | "documents" | "pdfs" | "reports" | "history" | "users" | "benefits" | "settings";
 const routes: { id: AppRoute; label: string; icon: typeof Gauge; roles?: string[] }[] = [
   { id: "dashboard", label: "Dashboard", icon: Gauge }, { id: "payroll", label: "Dados da Folha", icon: Sheet, roles: ["ADMINISTRADOR", "RH"] },
+  { id: "conferencia", label: "Conferência", icon: ClipboardCheck, roles: ["ADMINISTRADOR", "RH"] },
   { id: "documents", label: "Documentos RH", icon: FolderLock },
   { id: "pdfs", label: "PDFs", icon: FileStack, roles: ["ADMINISTRADOR", "RH"] }, { id: "reports", label: "Relatórios", icon: FileBarChart },
   { id: "history", label: "Histórico", icon: History }, { id: "users", label: "Usuários", icon: Users, roles: ["ADMINISTRADOR"] },
@@ -62,7 +63,7 @@ export function AppShell({ route, onNavigate, children }: { route: AppRoute; onN
   }, [accountOpen, notificationsOpen]);
   const navigate = (next: AppRoute) => { setAccountOpen(false); setNotificationsOpen(false); setMobileOpen(false); history.pushState({}, "", next === "dashboard" ? "/" : `/${next}`); onNavigate(next); };
   const toggleSidebar = () => shellRef.current?.classList.toggle("sidebar-collapsed");
-  return <div ref={shellRef} className="control-shell">
+  return <div ref={shellRef} className={`control-shell${route === "conferencia" ? " audit-shell" : ""}`}>
     {mobileOpen && <button className="mobile-overlay" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
     <aside className={`control-sidebar ${mobileOpen ? "mobile-open" : ""}`}>
       <div className="control-brand"><BrandLogo size={48} className="sidebar-company-logo" /><div><strong>RH Controle</strong><small>Gestão administrativa</small></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>

@@ -1,6 +1,7 @@
 import type { ActivePayroll, AuditEntry, ComparisonRow, ComparisonStatus, FileRetentionMode, PayrollMonthOption, PayrollRecord, PlanComparisonState, RawFileUpload, Role, SystemSettings, UserProfile } from "../types";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import { fixLegacyEncoding } from "../utils/text";
+import { normalizePayrollAuditEvents } from "../modules/payroll/audit-fields";
 
 const isStaticHostinger = process.env.NEXT_PUBLIC_DEPLOY_TARGET === "static-hostinger";
 const bucket = "rh-private-files";
@@ -48,7 +49,7 @@ type RawFileRow = {
   storage_path?: string;
 };
 
-type PayrollRecordRow = { cpf:string; name:string; liquid:number|string; health_total:number|string; dental_total:number|string; health_columns:number; dental_columns:number; source_sheet:string };
+type PayrollRecordRow = { cpf:string; name:string; liquid:number|string; health_total:number|string; dental_total:number|string; health_columns:number; dental_columns:number; source_sheet:string; audit_data?:PayrollRecord["audit"]|null };
 type PayrollImportRow = { id:string; file_name:string; file_size:number|string; competence:string; updated_at:string; imported_by_name:string; logs:unknown; payroll_records?:PayrollRecordRow[] };
 type PayrollMonthRow = { id:string; file_name:string; competence:string; record_count:number; updated_at:string; imported_by_name:string };
 type ComparisonDetailRow = { cpf:string; name:string; payroll_value:number|string|null; reference_value:number|string|null; difference:number|string|null; liquid:number|string|null; column_count:number; status:ComparisonStatus };
@@ -95,7 +96,7 @@ const rawFileFromRow = (row: RawFileRow): RawFileUpload => ({
   createdAt: row.created_at,
 });
 
-const payrollRecordFromRow=(row:PayrollRecordRow):PayrollRecord=>({ cpf:row.cpf,name:fixLegacyEncoding(row.name),liquid:Number(row.liquid??0),healthTotal:Number(row.health_total??0),dentalTotal:Number(row.dental_total??0),healthColumns:Number(row.health_columns??0),dentalColumns:Number(row.dental_columns??0),sourceSheet:fixLegacyEncoding(row.source_sheet??"") });
+export const payrollRecordFromRow=(row:PayrollRecordRow):PayrollRecord=>({ cpf:row.cpf,name:fixLegacyEncoding(row.name),liquid:Number(row.liquid??0),healthTotal:Number(row.health_total??0),dentalTotal:Number(row.dental_total??0),healthColumns:Number(row.health_columns??0),dentalColumns:Number(row.dental_columns??0),sourceSheet:fixLegacyEncoding(row.source_sheet??""),audit:row.audit_data?.version===1?normalizePayrollAuditEvents(row.audit_data):undefined });
 const payrollFromRow=(row:PayrollImportRow):ActivePayroll=>({ id:row.id,fileName:fixLegacyEncoding(row.file_name),fileSize:Number(row.file_size??0),competence:row.competence,importedAt:row.updated_at,importedBy:fixLegacyEncoding(row.imported_by_name||"Usuário RH"),records:(row.payroll_records??[]).map(payrollRecordFromRow).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")),logs:Array.isArray(row.logs)?row.logs.map(fixLegacyEncoding):[] });
 
 const comparisonFromRow=(row:ComparisonDbRow):PlanComparisonState=>({
@@ -162,9 +163,17 @@ export async function listPayrollMonths():Promise<PayrollMonthOption[]>{
 
 export async function loadPayrollMonth(competence:string):Promise<ActivePayroll|null>{
   const supabase=createSupabaseBrowserClient();
-  const {data,error}=await supabase.from("payroll_imports").select("id,file_name,file_size,competence,updated_at,imported_by_name,logs,payroll_records(cpf,name,liquid,health_total,dental_total,health_columns,dental_columns,source_sheet)").eq("competence",competence).maybeSingle();
+  const {data,error}=await supabase.from("payroll_imports").select("id,file_name,file_size,competence,updated_at,imported_by_name,logs").eq("competence",competence).maybeSingle();
   if(error)throw error;
-  return data?payrollFromRow(data as PayrollImportRow):null;
+  if(!data)return null;
+  const records:PayrollRecordRow[]=[];
+  for(let offset=0;;offset+=500){
+    const page=await supabase.from("payroll_records").select("cpf,name,liquid,health_total,dental_total,health_columns,dental_columns,source_sheet,audit_data").eq("payroll_import_id",data.id).order("cpf").range(offset,offset+499);
+    if(page.error)throw page.error;
+    records.push(...(page.data??[]) as PayrollRecordRow[]);
+    if((page.data?.length??0)<500)break;
+  }
+  return payrollFromRow({...data,payroll_records:records} as PayrollImportRow);
 }
 
 export async function loadActivePayroll():Promise<ActivePayroll|null>{
@@ -174,7 +183,7 @@ export async function loadActivePayroll():Promise<ActivePayroll|null>{
 
 export async function savePayrollMonth(payroll:ActivePayroll):Promise<{payroll:ActivePayroll;updated:boolean}>{
   const supabase=createSupabaseBrowserClient();
-  const records=payroll.records.map(record=>({cpf:record.cpf,name:record.name,liquid:record.liquid,health_total:record.healthTotal,dental_total:record.dentalTotal,health_columns:record.healthColumns,dental_columns:record.dentalColumns,source_sheet:record.sourceSheet}));
+  const records=payroll.records.map(record=>({cpf:record.cpf,name:record.name,liquid:record.liquid,health_total:record.healthTotal,dental_total:record.dentalTotal,health_columns:record.healthColumns,dental_columns:record.dentalColumns,source_sheet:record.sourceSheet,audit_data:record.audit??null}));
   const {data,error}=await supabase.rpc("save_payroll_month",{p_competence:payroll.competence,p_file_name:payroll.fileName,p_file_size:payroll.fileSize,p_logs:payroll.logs,p_records:records});
   if(error)throw error;
   const saved=await loadPayrollMonth(payroll.competence);

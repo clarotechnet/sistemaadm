@@ -6,11 +6,11 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vinext dev",
+    "dev": "vinext dev --port 3000",
     "build": "vinext build",
     "build:hostinger": "vite build --config vite.hostinger.config.ts",
     "start": "vinext start",
-    "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/security-hardening.test.mjs tests/core.test.ts",
+    "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/security-hardening.test.mjs tests/production-config.test.mjs tests/core.test.ts tests/quark-employee-dates.test.ts tests/benefit-unique-event-days.test.mjs tests/employee-movements.test.ts tests/document-bulk-matching.test.ts tests/payroll-audit.test.ts",
     "test:hostinger": "npm run build:hostinger && node --test tests/hostinger-build.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",

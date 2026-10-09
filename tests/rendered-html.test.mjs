@@ -147,8 +147,8 @@ test("keeps the documents route available and employee registration minimal", as
     readFile(new URL("../app/ui/pages/EmployeeDocumentsPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/services/employee-documents.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(route, /"payroll","documents","pdfs"/);
-  assert.match(route, /"payroll","documents","pdfs","reports","history"/);
+  assert.match(route, /routes:AppRoute\[\]=\[[^\]]*"documents"/);
+  assert.match(route, /profile\.role==="RH"\?\[[^\]]*"documents"/);
   assert.doesNotMatch(page, /<span>Matrícula<\/span>/);
   assert.doesNotMatch(page, /<span>Cargo<\/span>/);
   assert.doesNotMatch(service, /payload\.registration/);

@@ -16,11 +16,11 @@ import { useApp } from "../state/AppContext";
 type Tab = "overview" | "health" | "dental" | "imports";
 const tabs: { id: Tab; label: string }[] = [{ id:"overview",label:"Visão geral"},{id:"health",label:"Plano de Saúde"},{id:"dental",label:"Plano Odontológico"},{id:"imports",label:"Importações"}];
 
-export function PayrollPage() {
+export function PayrollPage({ initialTab }: { initialTab?: Tab } = {}) {
   const app = useApp();
-  const [tab, setTab] = useState<Tab>(app.activePayroll ? "overview" : "imports");
+  const [tab, setTab] = useState<Tab>(initialTab ?? (app.activePayroll ? "overview" : "imports"));
   const [removeOpen, setRemoveOpen] = useState(false);
-  useEffect(()=>{if(!app.payrollLoading&&app.activePayroll)setTab(current=>current==="imports"?"overview":current)},[app.payrollLoading,app.activePayroll?.id]);
+  useEffect(()=>{if(!initialTab&&!app.payrollLoading&&app.activePayroll)setTab(current=>current==="imports"?"overview":current)},[initialTab,app.payrollLoading,app.activePayroll?.id]);
   return <>
     <div className="page-heading compact"><div><h2>Dados da Folha</h2><p>Importe uma vez e reutilize a folha em todas as conferências.</p></div><label className="field competence-filter"><span>COMPETÊNCIA EM EXIBIÇÃO</span><select value={app.selectedCompetence??""} disabled={app.payrollLoading||!app.payrollMonths.length} onChange={event=>void app.selectCompetence(event.target.value)}>{!app.payrollMonths.length&&<option value="">Nenhuma competência</option>}{app.payrollMonths.map(month=><option key={month.id} value={month.competence}>{month.competence}</option>)}</select><small>{app.payrollLoading?"Carregando dados...":`${app.payrollMonths.length} competência(s) disponível(is)`}</small></label></div>
     {app.activePayroll && <div className="payroll-summary"><span className="document-icon">XLS</span><div><small>FOLHA DA COMPETÊNCIA</small><strong>{app.activePayroll.fileName}</strong><em>{app.activePayroll.records.length} colaboradores reconhecidos</em></div><div><small>COMPETÊNCIA</small><strong>{app.activePayroll.competence}</strong></div><div><small>IMPORTADA EM</small><strong>{new Date(app.activePayroll.importedAt).toLocaleDateString("pt-BR")}</strong><em>{new Date(app.activePayroll.importedAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</em></div><div><small>USUÁRIO</small><strong>{app.activePayroll.importedBy}</strong></div><button className="button secondary" onClick={() => setTab("imports")}><Upload size={15}/> Importar / Atualizar</button>{app.user.role==="ADMINISTRADOR"&&<button className="icon-danger" title="Remover competência do banco" onClick={() => setRemoveOpen(true)}><Trash2 size={17}/></button>}</div>}

@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.114.0";
+import { parseQuarkEmployeeDate } from "./date-utils.ts";
 
 const PROD_ORIGIN = "https://administrativo.clarotechnet.com.br";
 const allowedOrigins = new Set([PROD_ORIGIN, "http://localhost:3000", "http://localhost:5173"]);
@@ -47,11 +48,6 @@ const normalizeQuarkCpf = (value: unknown) => {
   return isValidCpfDigits(candidate) ? candidate : "";
 };
 const firstText = (...values: unknown[]) => values.map(asText).find(Boolean) ?? "";
-const isoDate = (value: unknown) => {
-  const text = asText(value);
-  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match?.[1] ?? null;
-};
 
 function corsHeaders(request: Request) {
   const origin = request.headers.get("origin") ?? "";
@@ -114,8 +110,8 @@ function normalizeEmployee(record: JsonObject, unitId: string, unitName: string)
     external_unit_name: unitName,
     external_team_id: asText(equipe.id),
     external_team_name: department,
-    admission_date: isoDate(record.dataAdmissao),
-    termination_date: isoDate(record.dataDesligamento),
+    admission_date: parseQuarkEmployeeDate(record.dataAdmissao),
+    termination_date: parseQuarkEmployeeDate(record.dataDesligamento),
   };
 }
 async function quarkRequest(baseUrl: string, token: string, path: string, unitId?: string) {

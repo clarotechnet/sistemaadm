@@ -2,14 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
-import { Archive, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, FileText, Folder, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Upload, Users, X } from "lucide-react";
+import { Archive, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, FileText, Folder, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Upload, Users } from "lucide-react";
 import type { DocumentCategory, Employee, EmployeeDocument, EmployeeDocumentStatus, EmployeeStatus, EmployeeSyncRun } from "../../../src/types";
 import { formatCpf } from "../../../src/utils/cpf";
 import { downloadFile, formatFileSize } from "../../../src/utils/download";
 import {
   downloadEmployeeDocumentBlob,
-  employeeDocumentAccept,
-  employeeDocumentMaxSize,
   getEmployeeDocumentUrl,
   listDocumentCategories,
   listEmployeeDocuments,
@@ -25,18 +23,20 @@ import {
 } from "../../../src/services/employee-documents";
 import { ConfirmationModal, EmptyState, MetricCard, StatusBadge } from "../components/Common";
 import { useApp } from "../state/AppContext";
+import { EmployeeDocumentBulkUploadModal, prepareBulkFiles, type BulkUploadForm } from "./EmployeeDocumentBulkUploadModal";
+import { normalizeDocumentMatchText } from "../../../src/modules/employees/document-matching";
+import { EmployeeMovementsPanel } from "./EmployeeMovementsPanel";
 
-type CenterView = "documents" | "employees" | "trash";
+type CenterView = "documents" | "employees" | "movements" | "trash";
 type EmployeeStatusFilter = "ALL" | EmployeeStatus;
-type EmployeeForm = { name: string; cpf: string; department: string; status: EmployeeStatus };
-type UploadForm = { employeeId: string; categoryId: string; competence: string; title: string; notes: string };
+type EmployeeForm = { name: string; cpf: string; department: string; status: EmployeeStatus; admissionDate: string; terminationDate: string };
 
 const currentCompetence = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 };
-const emptyEmployeeForm = (): EmployeeForm => ({ name: "", cpf: "", department: "", status: "ATIVO" });
-const emptyUploadForm = (competence: string): UploadForm => ({ employeeId: "", categoryId: "", competence, title: "", notes: "" });
+const emptyEmployeeForm = (): EmployeeForm => ({ name: "", cpf: "", department: "", status: "ATIVO", admissionDate: "", terminationDate: "" });
+const emptyUploadForm = (competence: string): BulkUploadForm => ({ categoryId: "", competence, title: "", notes: "" });
 const competenceLabel = (value: string) => value ? `${value.slice(5, 7)}/${value.slice(0, 4)}` : "—";
 const competenceLongLabel = (value: string) => {
   if (!/^\d{4}-\d{2}$/.test(value)) return "Período inválido";
@@ -61,11 +61,12 @@ export function EmployeeDocumentsPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [categories, setCategories] = useState<DocumentCategory[]>([]);
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
+  const [allDocuments, setAllDocuments] = useState<EmployeeDocument[] | null>(null);
+  const [loadingAllDocuments, setLoadingAllDocuments] = useState(false);
   const [trash, setTrash] = useState<EmployeeDocument[]>([]);
   const [competence, setCompetence] = useState(currentCompetence);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [employeeFilter, setEmployeeFilter] = useState("");
   const [employeeStatusFilter, setEmployeeStatusFilter] = useState<EmployeeStatusFilter>("ALL");
   const [showVersions, setShowVersions] = useState(false);
   const [loadingBase, setLoadingBase] = useState(true);
@@ -75,7 +76,7 @@ export function EmployeeDocumentsPage() {
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [employeeForm, setEmployeeForm] = useState<EmployeeForm>(emptyEmployeeForm);
   const [savingEmployee, setSavingEmployee] = useState(false);
-  const [uploadForm, setUploadForm] = useState<UploadForm>(() => emptyUploadForm(currentCompetence()));
+  const [uploadForm, setUploadForm] = useState<BulkUploadForm>(() => emptyUploadForm(currentCompetence()));
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
@@ -128,16 +129,33 @@ export function EmployeeDocumentsPage() {
   useEffect(() => { const timer = window.setTimeout(() => void loadBase(), 0); return () => window.clearTimeout(timer); }, [loadBase]);
   useEffect(() => { const timer = window.setTimeout(() => void loadDocuments(), 0); return () => window.clearTimeout(timer); }, [loadDocuments]);
   useEffect(() => { if (view !== "trash") return; const timer = window.setTimeout(() => void loadTrash(), 0); return () => window.clearTimeout(timer); }, [loadTrash, view]);
+  // Ao pesquisar por nome, busca documentos de todas as competências.
+  // Os KPIs continuam referenciando exclusivamente a competência selecionada.
+  useEffect(() => {
+    if (!query.trim() || allDocuments !== null) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setLoadingAllDocuments(true);
+      void listEmployeeDocuments(null).then(result => {
+        if (active) setAllDocuments(result);
+      }).catch(error => {
+        if (active) toast("error", "Não foi possível pesquisar todos os meses", error instanceof Error ? error.message : "Tente novamente.");
+      }).finally(() => { if (active) setLoadingAllDocuments(false); });
+    }, 350);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [query, allDocuments, toast]);
 
-  const normalizedQuery = query.trim().toLocaleLowerCase("pt-BR");
+  const normalizedQuery = normalizeDocumentMatchText(query);
+  const digitsQuery = query.replace(/\D/g, "");
   const matchesFilters = (document: EmployeeDocument) => {
     const employee = employeeById.get(document.employeeId);
     const category = categoryById.get(document.categoryId);
-    return (!employeeFilter || document.employeeId === employeeFilter)
-      && (!categoryFilter || document.categoryId === categoryFilter)
-      && (!normalizedQuery || [document.title, document.fileName, document.notes, employee?.name, employee?.cpf, category?.label].join(" ").toLocaleLowerCase("pt-BR").includes(normalizedQuery));
+    const searchable = normalizeDocumentMatchText([document.title, document.fileName, document.notes, employee?.name, category?.label].join(" "));
+    return (!categoryFilter || document.categoryId === categoryFilter)
+      && (!normalizedQuery || searchable.includes(normalizedQuery) || Boolean(digitsQuery && employee?.cpf.includes(digitsQuery)));
   };
-  const visibleDocuments = documents.filter(document => (showVersions || document.isCurrent) && matchesFilters(document));
+  const searchingAllMonths = Boolean(query.trim());
+  const visibleDocuments = (searchingAllMonths ? (allDocuments ?? []) : documents).filter(document => (showVersions || document.isCurrent) && matchesFilters(document));
   const visibleTrash = trash.filter(matchesFilters);
   const activeEmployees = employees.filter(employee => employee.status === "ATIVO");
   const disconnectedEmployees = employees.filter(employee => employee.status === "DESLIGADO");
@@ -152,7 +170,7 @@ export function EmployeeDocumentsPage() {
 
   const openEmployee = (employee?: Employee) => {
     setEditingEmployeeId(employee?.id ?? null);
-    setEmployeeForm(employee ? { name: employee.name, cpf: employee.cpf, department: employee.department, status: employee.status } : emptyEmployeeForm());
+    setEmployeeForm(employee ? { name: employee.name, cpf: employee.cpf, department: employee.department, status: employee.status, admissionDate: employee.admissionDate ?? "", terminationDate: employee.terminationDate ?? "" } : emptyEmployeeForm());
     setEmployeeOpen(true);
   };
 
@@ -187,44 +205,66 @@ export function EmployeeDocumentsPage() {
   };
 
   const openUpload = () => {
-    const firstEmployee = activeEmployees[0]?.id ?? employees[0]?.id ?? "";
-    const firstCategory = categories[0]?.id ?? "";
-    setUploadForm({ employeeId: employeeFilter || firstEmployee, categoryId: categoryFilter || firstCategory, competence, title: "", notes: "" });
+    setUploadForm({ categoryId: categoryFilter || "", competence, title: "", notes: "" });
     setUploadFiles([]);
     setUploadProgress("");
     setUploadOpen(true);
   };
 
   const submitUpload = async () => {
-    if (!uploadForm.employeeId || !uploadForm.categoryId || !uploadFiles.length) {
-      app.toast("warning", "Preencha funcionário, categoria e arquivo");
+    if (uploading) return;
+    if (!uploadForm.categoryId || !/^\d{4}-(0[1-9]|1[0-2])$/.test(uploadForm.competence)) {
+      app.toast("warning", "Informe a competência e categoria dos PDFs.");
+      return;
+    }
+    const prepared = prepareBulkFiles(uploadFiles, employees);
+    const ready = prepared.filter(item => item.valid && item.match.status === "matched");
+    const ignored = prepared.length - ready.length;
+    if (!ready.length) {
+      app.toast("warning", "Nenhum PDF identificado com segurança", "Confira os nomes dos arquivos e os cadastros dos funcionários.");
       return;
     }
     setUploading(true);
     let uploaded = 0;
     const failures: string[] = [];
+    const completed = new Set<File>();
     try {
-      for (const [index, file] of uploadFiles.entries()) {
-        setUploadProgress(`Enviando ${index + 1} de ${uploadFiles.length}: ${file.name}`);
+      for (const [index, item] of ready.entries()) {
+        if (item.match.status !== "matched") continue;
+        const employee = item.match.employee;
+        setUploadProgress(`Enviando ${index+1}/${ready.length} · ${employee.name} · ${item.file.name}`);
         try {
-          await uploadEmployeeDocument(file, {
-            ...uploadForm,
-            title: uploadFiles.length === 1 ? uploadForm.title : file.name.replace(/\.[^.]+$/, ""),
+          await uploadEmployeeDocument(item.file, {
+            employeeId: employee.id,
+            categoryId: uploadForm.categoryId,
+            competence: uploadForm.competence,
+            title: uploadForm.title.trim(),
+            notes: uploadForm.notes,
           });
-          uploaded += 1;
+          completed.add(item.file);
+          uploaded++;
         } catch (caught) {
-          failures.push(`${file.name}: ${caught instanceof Error ? caught.message : "falha no envio"}`);
+          failures.push(`${item.file.name}: ${caught instanceof Error ? caught.message : "falha no envio"}`);
         }
       }
       if (uploaded) {
-        const employee = employeeById.get(uploadForm.employeeId);
-        app.addAudit({ operation: "Arquivou documentos", module: "Documentos", result: `${uploaded} arquivo(s) · ${employee?.name ?? "Funcionário"} · ${competenceLabel(uploadForm.competence)}`, status: failures.length ? "AVISO" : "SUCESSO", processedCount: uploaded });
-        app.toast("success", `${uploaded} documento(s) arquivado(s)`, "Os arquivos estão no cofre privado do RH.");
-        setCompetence(uploadForm.competence);
-        await loadDocuments();
+        app.addAudit({
+          operation: "Importou documentos em massa",
+          module: "Documentos",
+          result: `${uploaded} PDF(s) · ${competenceLabel(uploadForm.competence)} · ${ignored} sem correspondência · ${failures.length} com erro`,
+          status: failures.length || ignored ? "AVISO" : "SUCESSO",
+          processedCount: uploaded,
+          missingCount: ignored + failures.length,
+        });
+        app.toast("success", `${uploaded} PDF(s) arquivado(s)`, "Cada arquivo foi associado ao funcionário identificado pelo nome completo.");
+        setUploadFiles(current => current.filter(file => !completed.has(file)));
+        setAllDocuments(null);
+        if (uploadForm.competence !== competence) setCompetence(uploadForm.competence);
+        else await loadDocuments();
       }
-      if (failures.length) app.toast("warning", `${failures.length} arquivo(s) não foram enviados`, failures[0]);
-      if (!failures.length) setUploadOpen(false);
+      if (ignored) app.toast("warning", `${ignored} arquivo(s) não identificado(s)`, "Ficaram na seleção para conferência. Nenhum foi vinculado à pessoa errada.");
+      if (failures.length) app.toast("warning", `${failures.length} envio(s) falharam`, failures.slice(0,2).join(" | "));
+      if (!failures.length && !ignored) setUploadOpen(false);
     } finally {
       setUploading(false);
       setUploadProgress("");
@@ -261,6 +301,7 @@ export function EmployeeDocumentsPage() {
     try {
       const updated = await reviewEmployeeDocument(document.id, status);
       setDocuments(current => current.map(item => item.id === document.id ? updated : item));
+      setAllDocuments(current => current?.map(item => item.id === document.id ? updated : item) ?? null);
       app.addAudit({ operation: status === "CONFERIDO" ? "Conferiu documento" : "Reabriu conferência", module: "Documentos", result: document.fileName, status: "SUCESSO", fileName: document.fileName });
       app.toast("success", status === "CONFERIDO" ? "Documento conferido" : "Documento marcado como recebido");
     } catch (caught) {
@@ -272,6 +313,7 @@ export function EmployeeDocumentsPage() {
     setBusyId(document.id);
     try {
       await trashEmployeeDocument(document.id);
+      setAllDocuments(null);
       await Promise.all([loadDocuments(), loadTrash()]);
       app.addAudit({ operation: "Moveu documento para a lixeira", module: "Documentos", result: document.fileName, status: "AVISO", fileName: document.fileName });
       app.toast("success", "Documento movido para a lixeira", "O arquivo ainda pode ser restaurado.");
@@ -284,6 +326,7 @@ export function EmployeeDocumentsPage() {
     setBusyId(document.id);
     try {
       await restoreEmployeeDocument(document.id);
+      setAllDocuments(null);
       await Promise.all([loadDocuments(), loadTrash()]);
       app.addAudit({ operation: "Restaurou documento", module: "Documentos", result: document.fileName, status: "SUCESSO", fileName: document.fileName });
       app.toast("success", "Documento restaurado");
@@ -358,15 +401,16 @@ export function EmployeeDocumentsPage() {
     const employee = employeeById.get(document.employeeId);
     const category = categoryById.get(document.categoryId);
     return <tr key={document.id} className={!document.isCurrent && !deleted ? "document-old-version" : ""}><td><div className="document-name-cell"><span><FileText /></span><div><strong>{document.title}</strong><small>{document.fileName} · {formatFileSize(document.sizeBytes)}</small></div></div></td><td><strong>{employee?.name ?? "Funcionário não localizado"}</strong><small className="block-muted">{employee ? formatCpf(employee.cpf, app.settings.maskCpf) : "—"}</small></td><td>{category?.label ?? document.categoryId}</td><td>{competenceLabel(document.competence)}</td><td><span className="version-pill">v{document.version}{document.isCurrent ? " · atual" : ""}</span></td><td><StatusBadge status={deleted ? "NA LIXEIRA" : document.reviewStatus} /></td><td>{displayDate(deleted ? document.deletedAt : document.createdAt)}<small className="block-muted">{deleted ? document.deletedByName : document.uploadedByName}</small></td><td><div className="row-actions document-actions">{deleted ? <><button disabled={busyId === document.id} title="Restaurar" onClick={() => void restoreDocument(document)}><RotateCcw /></button>{isAdmin && <button className="danger-action" disabled={busyId === document.id} title="Excluir definitivamente" onClick={() => setPurgeTarget(document)}><Trash2 /></button>}</> : <><button disabled={busyId === document.id} title="Visualizar" onClick={() => void openDocument(document)}><Eye /></button><button disabled={busyId === document.id} title="Baixar" onClick={() => void downloadDocument(document)}><Download /></button>{canManage && <button disabled={busyId === document.id} title={document.reviewStatus === "CONFERIDO" ? "Reabrir conferência" : "Marcar como conferido"} onClick={() => void updateReview(document, document.reviewStatus === "CONFERIDO" ? "RECEBIDO" : "CONFERIDO")}><CheckCircle2 /></button>}{canManage && <button className="danger-action" disabled={busyId === document.id} title="Mover para lixeira" onClick={() => setTrashTarget(document)}><Trash2 /></button>}</>}</div></td></tr>;
-  })}</tbody></table></div> : <EmptyState icon={deleted ? <Archive /> : <Folder />} title={loadingDocuments ? "Carregando documentos..." : deleted ? "A lixeira está vazia" : "Nenhum documento encontrado"} description={deleted ? "Documentos removidos aparecerão aqui e poderão ser restaurados." : `Nenhum arquivo corresponde aos filtros da competência ${competenceLabel(competence)}.`} />;
+  })}</tbody></table></div> : <EmptyState icon={deleted ? <Archive /> : <Folder />} title={loadingDocuments || (searchingAllMonths && loadingAllDocuments) ? "Carregando documentos..." : deleted ? "A lixeira está vazia" : "Nenhum documento encontrado"} description={deleted ? "Documentos removidos aparecerão aqui e poderão ser restaurados." : `Nenhum arquivo corresponde aos filtros da competência ${competenceLabel(competence)}.`} />;
 
   return <>
     <div className="page-heading documents-heading"><div><h2>Documentos dos Funcionários</h2><p>Cofre privado para documentos trabalhistas e pacotes mensais de auditoria.</p></div><div><button className="button primary" disabled={!canManage || !employees.length} onClick={openUpload}><Upload /> Enviar documentos</button></div></div>
     <div className="documents-security-note"><ShieldCheck /><span><strong>Arquivos privados e rastreáveis</strong><small>O acesso exige login; visualizações, downloads, alterações e exclusões são registrados no histórico.</small></span></div>
-    <div className="metrics-grid documents-metrics"><MetricCard label="TOTAL DE FUNCIONÁRIOS" value={loadingBase ? "—" : employees.length} detail={loadingBase ? "carregando cadastros" : `${activeEmployees.length} ativos · ${disconnectedEmployees.length} desligados`} /><MetricCard label={`DOCUMENTOS · ${competenceLabel(competence)}`} value={loadingDocuments ? "—" : currentDocuments.length} detail={`${reviewedCount} conferido(s)`} tone="success" /><MetricCard label="OBRIGATÓRIOS RECEBIDOS" value={loadingDocuments ? "—" : `${receivedRequired}/${requiredTotal}`} detail="ponto e holerite por funcionário" tone={pendingRequired ? "warning" : "success"} /><MetricCard label="PENDÊNCIAS DO MÊS" value={loadingDocuments ? "—" : pendingRequired} detail={pendingRequired ? "documentos obrigatórios ausentes" : "competência completa"} tone={pendingRequired ? "warning" : "success"} /></div>
-    <div className="tabs documents-tabs"><button className={view === "documents" ? "active" : ""} onClick={() => setView("documents")}>Documentos</button><button className={view === "employees" ? "active" : ""} onClick={() => setView("employees")}>Funcionários</button>{canManage && <button className={view === "trash" ? "active" : ""} onClick={() => setView("trash")}>Lixeira</button>}</div>
+    <div className="tabs documents-tabs"><button className={view === "documents" ? "active" : ""} onClick={() => setView("documents")}>Documentos</button><button className={view === "employees" ? "active" : ""} onClick={() => setView("employees")}>Funcionários</button><button className={view === "movements" ? "active" : ""} onClick={() => setView("movements")}>Movimentações</button>{canManage && <button className={view === "trash" ? "active" : ""} onClick={() => setView("trash")}>Lixeira</button>}</div>
 
-    {view === "documents" && <section className="surface table-surface documents-surface"><div className="documents-toolbar"><div className="search-box"><Search /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Pesquisar documento, funcionário ou CPF" /></div><label className="documents-period-field"><span>Período</span><div className="documents-period-control"><button type="button" title="Mês anterior" aria-label="Mês anterior" onClick={() => setCompetence(current => shiftCompetence(current, -1))}><ChevronLeft /></button><select value={competence} onChange={event => setCompetence(event.target.value)} aria-label="Selecionar período">{periodOptions.map(period => <option key={period} value={period}>{competenceLongLabel(period)}</option>)}</select><button type="button" title="Próximo mês" aria-label="Próximo mês" onClick={() => setCompetence(current => shiftCompetence(current, 1))}><ChevronRight /></button></div></label><label><span>Funcionário</span><select value={employeeFilter} onChange={event => setEmployeeFilter(event.target.value)}><option value="">Todos</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label><label><span>Categoria</span><select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)}><option value="">Todas</option>{categories.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label></div><div className="documents-subtoolbar"><label className="checkbox-line"><input type="checkbox" checked={showVersions} onChange={event => setShowVersions(event.target.checked)} /> Mostrar versões anteriores</label><span>{visibleDocuments.length} documento(s)</span><button className="button secondary" disabled={packaging || !currentDocuments.length} onClick={() => void makeMonthlyPackage()}><Archive /> {packaging ? packageProgress || "Gerando pacote..." : "Gerar pacote mensal"}</button></div>{documentTable(visibleDocuments)}</section>}
+    {view === "documents" && <div className="metrics-grid documents-metrics"><MetricCard label="TOTAL DE FUNCIONÁRIOS" value={loadingBase ? "—" : employees.length} detail={loadingBase ? "carregando cadastros" : `${activeEmployees.length} ativos · ${disconnectedEmployees.length} desligados`} /><MetricCard label={`DOCUMENTOS · ${competenceLabel(competence)}`} value={loadingDocuments ? "—" : currentDocuments.length} detail={`${reviewedCount} conferido(s)`} tone="success" /><MetricCard label="OBRIGATÓRIOS RECEBIDOS" value={loadingDocuments ? "—" : `${receivedRequired}/${requiredTotal}`} detail="ponto e holerite por funcionário" tone={pendingRequired ? "warning" : "success"} /><MetricCard label="PENDÊNCIAS DO MÊS" value={loadingDocuments ? "—" : pendingRequired} detail={pendingRequired ? "documentos obrigatórios ausentes" : "competência completa"} tone={pendingRequired ? "warning" : "success"} /></div>}
+
+    {view === "documents" && <section className="surface table-surface documents-surface"><div className="documents-toolbar"><div className="search-box"><Search /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Pesquisar documento, funcionário ou CPF" /></div><label className="documents-period-field"><span>Período</span><div className="documents-period-control"><button type="button" title="Mês anterior" aria-label="Mês anterior" onClick={() => setCompetence(current => shiftCompetence(current, -1))}><ChevronLeft /></button><select value={competence} onChange={event => setCompetence(event.target.value)} aria-label="Selecionar período">{periodOptions.map(period => <option key={period} value={period}>{competenceLongLabel(period)}</option>)}</select><button type="button" title="Próximo mês" aria-label="Próximo mês" onClick={() => setCompetence(current => shiftCompetence(current, 1))}><ChevronRight /></button></div></label><label><span>Categoria</span><select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)}><option value="">Todas</option>{categories.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label></div><div className="documents-subtoolbar"><label className="checkbox-line"><input type="checkbox" checked={showVersions} onChange={event => setShowVersions(event.target.checked)} /> Mostrar versões anteriores</label><span>{searchingAllMonths ? "Todas as competências · " : ""}{loadingAllDocuments && searchingAllMonths ? "Pesquisando... " : ""}{visibleDocuments.length} documento(s)</span><button className="button secondary" disabled={packaging || !currentDocuments.length} onClick={() => void makeMonthlyPackage()}><Archive /> {packaging ? packageProgress || "Gerando pacote..." : "Gerar pacote mensal"}</button></div>{documentTable(visibleDocuments)}</section>}
 
     {view === "employees" && <section className="surface table-surface documents-surface">
       <div className="section-header employee-sync-header">
@@ -408,36 +452,18 @@ export function EmployeeDocumentsPage() {
       </table></div> : <EmptyState icon={<Users />} title={loadingBase ? "Carregando funcionários..." : "Nenhum funcionário cadastrado"} description="Sincronize com o QuarkRH ou cadastre um funcionário manualmente." action={canManage ? <button className="button secondary" disabled={syncingEmployees} onClick={() => void syncQuarkEmployees()}><RefreshCw /> Sincronizar QuarkRH</button> : undefined} />}
     </section>}
 
+    {view === "movements" && <EmployeeMovementsPanel employees={employees} loading={loadingBase} onSync={() => void syncQuarkEmployees()} syncing={syncingEmployees} lastSync={employeeSync?.completedAt ?? employeeSync?.startedAt ?? null} />}
+
     {view === "trash" && canManage && <section className="surface table-surface documents-surface"><div className="section-header"><div><h3>Lixeira de documentos</h3><p>RH pode restaurar arquivos. Apenas Administradores podem excluí-los definitivamente.</p></div><span>{visibleTrash.length} item(ns)</span></div>{documentTable(visibleTrash, true)}</section>}
 
     {employeeOpen && <EmployeeModal form={employeeForm} setForm={setEmployeeForm} editing={Boolean(editingEmployeeId)} busy={savingEmployee} onClose={() => setEmployeeOpen(false)} onSave={() => void submitEmployee()} />}
-    {uploadOpen && <UploadModal form={uploadForm} setForm={setUploadForm} employees={employees} categories={categories} files={uploadFiles} setFiles={setUploadFiles} busy={uploading} progress={uploadProgress} onClose={() => setUploadOpen(false)} onUpload={() => void submitUpload()} />}
+    {uploadOpen && <EmployeeDocumentBulkUploadModal form={uploadForm} setForm={setUploadForm} employees={employees} categories={categories} files={uploadFiles} setFiles={setUploadFiles} busy={uploading} progress={uploadProgress} onClose={() => setUploadOpen(false)} onUpload={() => void submitUpload()} />}
     <ConfirmationModal open={Boolean(trashTarget)} danger title="Mover documento para a lixeira?" description="O documento deixará de aparecer na competência, mas poderá ser restaurado depois." confirmLabel="Mover para lixeira" onClose={() => setTrashTarget(null)} onConfirm={() => { if (trashTarget) void moveToTrash(trashTarget); }} />
     <ConfirmationModal open={Boolean(purgeTarget)} danger title="Excluir documento definitivamente?" description="O arquivo e seus metadados serão removidos do cofre. Esta ação não pode ser desfeita." confirmLabel="Excluir definitivamente" onClose={() => setPurgeTarget(null)} onConfirm={() => { if (purgeTarget) void purgeDocument(purgeTarget); }} />
   </>;
 }
 
 function EmployeeModal({ form, setForm, editing, busy, onClose, onSave }: { form: EmployeeForm; setForm: (form: EmployeeForm) => void; editing: boolean; busy: boolean; onClose: () => void; onSave: () => void }) {
-  const incomplete = form.name.trim().length < 2 || form.cpf.replace(/\D/g, "").length !== 11 || form.department.trim().length < 2;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}><div className="modal form-modal employee-modal" role="dialog" aria-modal="true"><h3>{editing ? "Editar funcionário" : "Novo funcionário"}</h3><p>Informe apenas os dados necessários para organizar os documentos. Os campos com * são obrigatórios.</p><label className="field"><span>Nome completo *</span><input required autoComplete="name" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label><div className="two-fields"><label className="field grow"><span>CPF *</span><input required inputMode="numeric" autoComplete="off" maxLength={14} value={form.cpf} onChange={event => setForm({ ...form, cpf: event.target.value })} placeholder="000.000.000-00" /></label><label className="field grow"><span>Setor *</span><input required autoComplete="organization-title" value={form.department} onChange={event => setForm({ ...form, department: event.target.value })} /></label></div><label className="field"><span>Situação</span><select value={form.status} onChange={event => setForm({ ...form, status: event.target.value as EmployeeStatus })}><option value="ATIVO">Ativo</option><option value="DESLIGADO">Desligado</option></select></label><div className="modal-actions"><button className="button secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || incomplete} onClick={onSave}>{busy ? "Salvando..." : "Salvar funcionário"}</button></div></div></div>;
-}
-
-function UploadModal({ form, setForm, employees, categories, files, setFiles, busy, progress, onClose, onUpload }: { form: UploadForm; setForm: (form: UploadForm) => void; employees: Employee[]; categories: DocumentCategory[]; files: File[]; setFiles: (files: File[]) => void; busy: boolean; progress: string; onClose: () => void; onUpload: () => void }) {
-  const input = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const [employeeSearch, setEmployeeSearch] = useState("");
-  const [employeePickerOpen, setEmployeePickerOpen] = useState(false);
-  const employeePickerRef = useRef<HTMLDivElement>(null);
-  const selectedEmployee = employees.find(employee => employee.id === form.employeeId);
-  const normalizedEmployeeName = employeeSearch.trim().toLocaleLowerCase("pt-BR");
-  const normalizedEmployeeCpf = employeeSearch.replace(/\D/g, "");
-  const filteredEmployees = employees.filter(employee => !employeeSearch.trim() || employee.name.toLocaleLowerCase("pt-BR").includes(normalizedEmployeeName) || (normalizedEmployeeCpf.length > 0 && employee.cpf.includes(normalizedEmployeeCpf)));
-  useEffect(() => {
-    if (!employeePickerOpen) return;
-    const close = (event: PointerEvent) => { if (event.target instanceof Node && !employeePickerRef.current?.contains(event.target)) setEmployeePickerOpen(false); };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, [employeePickerOpen]);
-  const addFiles = (list: FileList | null) => { if (list) setFiles([...files, ...Array.from(list)]); };
-  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}><div className="modal form-modal document-upload-modal" role="dialog" aria-modal="true"><h3>Enviar documentos</h3><p>Os arquivos serão armazenados no cofre privado e vinculados ao funcionário.</p><div className="two-fields"><div className="field grow"><span>Funcionário</span><div className="employee-combobox" ref={employeePickerRef}><button type="button" className="employee-combobox-trigger" disabled={busy} aria-expanded={employeePickerOpen} onClick={() => setEmployeePickerOpen(open => !open)}><span><strong>{selectedEmployee?.name ?? "Selecione um funcionário"}</strong>{selectedEmployee && <small>{selectedEmployee.department || "Sem setor"}{selectedEmployee.status === "DESLIGADO" ? " · desligado" : ""}</small>}</span><i>⌄</i></button>{employeePickerOpen && <div className="employee-combobox-menu"><div className="employee-combobox-search"><Search size={15}/><input autoFocus disabled={busy} value={employeeSearch} onChange={event => setEmployeeSearch(event.target.value)} placeholder="Pesquisar por nome ou CPF" autoComplete="off" /></div><div className="employee-combobox-list">{filteredEmployees.length ? filteredEmployees.map(employee => <button type="button" key={employee.id} className={employee.id === form.employeeId ? "selected" : ""} onClick={() => { setForm({ ...form, employeeId: employee.id }); setEmployeeSearch(""); setEmployeePickerOpen(false); }}><span><strong>{employee.name}</strong><small>{employee.department || "Sem setor"}{employee.status === "DESLIGADO" ? " · desligado" : ""}</small></span>{employee.id === form.employeeId && <b>✓</b>}</button>) : <div className="employee-combobox-empty">Nenhum funcionário encontrado.</div>}</div></div>}</div></div><label className="field grow"><span>Categoria</span><select value={form.categoryId} onChange={event => setForm({ ...form, categoryId: event.target.value })}><option value="">Selecione</option>{categories.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label></div><div className="two-fields"><label className="field grow"><span>Competência</span><input type="month" value={form.competence} onChange={event => setForm({ ...form, competence: event.target.value })} /></label><label className="field grow"><span>Título do documento</span><input value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} placeholder="Opcional; usado quando houver um arquivo" /></label></div><label className="field"><span>Observações</span><textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="Informação opcional para a auditoria" /></label><button type="button" className={`document-dropzone ${dragging ? "dragging" : ""}`} onClick={() => input.current?.click()} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}><Upload /><strong>Arraste os documentos para cá</strong><span>ou clique para selecionar · até 50 MB por arquivo</span><small>PDF, imagens, Word, Excel, CSV ou ZIP</small></button><input ref={input} hidden type="file" accept={employeeDocumentAccept} multiple onChange={event => { addFiles(event.target.files); event.target.value = ""; }} />{files.length > 0 && <div className="document-selected-files">{files.map((file, index) => <div key={`${file.name}-${file.lastModified}-${index}`} className={file.size > employeeDocumentMaxSize ? "invalid" : ""}><FileText /><span><strong>{file.name}</strong><small>{formatFileSize(file.size)}{file.size > employeeDocumentMaxSize ? " · excede 50 MB" : ""}</small></span><button disabled={busy} onClick={() => setFiles(files.filter((_, current) => current !== index))} aria-label={`Remover ${file.name}`}><X /></button></div>)}</div>}{progress && <div className="upload-progress"><i /><span>{progress}</span></div>}<div className="modal-actions"><button className="button secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || !files.length || files.some(file => file.size > employeeDocumentMaxSize)} onClick={onUpload}>{busy ? "Enviando..." : `Arquivar ${files.length || ""} documento(s)`}</button></div></div></div>;
+  const incomplete = form.name.trim().length < 2 || form.cpf.replace(/\D/g, "").length !== 11 || form.department.trim().length < 2 || Boolean(form.admissionDate && form.terminationDate && form.terminationDate < form.admissionDate);
+  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}><div className="modal form-modal employee-modal" role="dialog" aria-modal="true"><h3>{editing ? "Editar funcionário" : "Novo funcionário"}</h3><p>Informe apenas os dados necessários para organizar os documentos. Os campos com * são obrigatórios.</p><label className="field"><span>Nome completo *</span><input required autoComplete="name" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label><div className="two-fields"><label className="field grow"><span>CPF *</span><input required inputMode="numeric" autoComplete="off" maxLength={14} value={form.cpf} onChange={event => setForm({ ...form, cpf: event.target.value })} placeholder="000.000.000-00" /></label><label className="field grow"><span>Setor *</span><input required autoComplete="organization-title" value={form.department} onChange={event => setForm({ ...form, department: event.target.value })} /></label></div><label className="field"><span>Situação</span><select value={form.status} onChange={event => setForm({ ...form, status: event.target.value as EmployeeStatus })}><option value="ATIVO">Ativo</option><option value="DESLIGADO">Desligado</option></select></label><div className="two-fields"><label className="field grow"><span>Data de admissão</span><input type="date" value={form.admissionDate} onChange={event => setForm({ ...form, admissionDate: event.target.value })}/></label><label className="field grow"><span>Data de desligamento</span><input type="date" value={form.terminationDate} onChange={event => setForm({ ...form, terminationDate: event.target.value })}/></label></div><p className="block-muted">As datas são opcionais em cadastros manuais, mas necessárias para o relatório de entradas e saídas.</p><div className="modal-actions"><button className="button secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || incomplete} onClick={onSave}>{busy ? "Salvando..." : "Salvar funcionário"}</button></div></div></div>;
 }
