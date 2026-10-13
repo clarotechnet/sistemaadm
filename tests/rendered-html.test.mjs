@@ -68,6 +68,47 @@ test("PDF editor selects original text precisely and exposes close/remove contro
   assert.match(toolsPage, /PdfEditor onClose/);
 });
 
+test("health and dental comparisons live in Benefits after transport and reuse the payroll month", async () => {
+  const [payroll, benefits, plan, app] = await Promise.all([
+    readFile(new URL("../app/ui/pages/PayrollPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui/pages/BenefitsPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui/pages/PlanComparison.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui/RHControlApp.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(payroll, /type Tab = "overview" \| "imports"/);
+  assert.match(payroll, /Importar Folha de Pagamento/);
+  assert.doesNotMatch(payroll, /<PlanComparison|id:"health"|id:"dental"/);
+  const moduleTabs = benefits.match(/<div className="benefit-module-tabs">([\s\S]*?)<\/div>/)?.[1] ?? "";
+  const moduleLabels = [...moduleTabs.matchAll(/<strong>([^<]+)<\/strong><small>/g)].map(match => match[1]);
+  assert.deepEqual(moduleLabels, ["Agregamento", "Vale Transporte", "Plano de Saúde", "Plano Odontológico"]);
+  assert.match(benefits, /<PlanComparison key=\{tool\} kind=\{tool\}/);
+  assert.match(benefits, /app\.selectCompetence\(event\.target\.value\)/);
+  assert.match(plan, /app\.health:app\.dental/);
+  assert.match(plan, /comparePlan\(app\.activePayroll,reference,kind,toleranceValue\)/);
+  assert.match(plan, /savePayrollComparison\(app\.activePayroll\.id,kind/);
+  assert.match(plan, /removePayrollComparison\(app\.activePayroll!\.id,kind\)/);
+  assert.match(plan, /exportComparisonExcel\(state\.rows/);
+  assert.match(plan, /Dados da Folha → Importações/);
+  assert.match(app, /<BenefitsPage onImport=\{onImport\}/);
+});
+
+test("the shared header follows page scrolling without a nested scroll container", async () => {
+  const [css, shell] = await Promise.all([
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui/components/AppShell.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(shell, /<header className="control-topbar"/);
+  assert.match(css, /\.control-topbar\{[^}]*position:sticky;top:0/);
+  assert.match(css, /\.control-main\{[^}]*overflow-x:clip/);
+  const mainRules = [...css.matchAll(/[^{}]*\.control-main\s*\{([^}]*)\}/g)];
+  assert.ok(mainRules.length > 0);
+  for (const [, declarations] of mainRules) {
+    assert.doesNotMatch(declarations, /overflow(?:-x|-y)?\s*:\s*(?:hidden|auto|scroll)/);
+  }
+  assert.doesNotMatch(css, /--control-sidebar-width:290px/);
+  assert.match(css, /--control-sidebar-width:220px;--control-sidebar-collapsed:64px/);
+});
+
 test("account menu closes after clicking outside or pressing Escape", async () => {
   const shell = await readFile(new URL("../app/ui/components/AppShell.tsx", import.meta.url), "utf8");
   assert.match(shell, /accountRef\.current\?\.contains/);

@@ -49,6 +49,10 @@ No frontend e no build estático, use somente `publishable` ou a chave legada `a
 
 As migrations SQL versionadas ficam em `supabase/migrations`. Para um projeto vazio, use `supabase/SQL_EDITOR_ALL.sql` no SQL Editor do Supabase.
 
+## Benefícios e comparativos de planos
+
+Os módulos de Benefícios aparecem na ordem Agregamento, Vale Transporte, Plano de Saúde e Plano Odontológico. Saúde e Odonto reutilizam a folha importada em **Dados da Folha → Importações** e os comparativos já salvos da competência selecionada, mantendo referência XLS/XLSX, tolerância, filtros, exportação Excel e exclusão do comparativo. Dados da Folha mantém Visão geral e Importações; mover as telas não exige alterar o banco nem reimportar os resultados existentes.
+
 ## Conferência de folha
 
 A rota `/conferencia`, disponível a RH e Administradores, utiliza as mesmas competências de **Dados da Folha → Importações**. Compara **sempre o líquido** atual com cada folha disponível em até **3 meses anteriores**, com período selecionável de 1 a 3 meses (padrão: 3). Não calcula média nem usa competências mais antigas para completar meses faltantes. Totais, novos e ausentes usam a referência mais recente disponível; variações também consideram as outras referências do período. O detalhamento e as exportações identificam cada mês. Os limites de variação exigem percentual **e** diferença absoluta (padrão: 20% e R$ 300).

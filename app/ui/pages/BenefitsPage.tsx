@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, Bus, CalendarDays, Check, FileSpreadsheet, Pencil, Plus, RefreshCw, Search, Upload, X } from "lucide-react";
+import { Boxes, Bus, CalendarDays, Check, FileSpreadsheet, HeartPulse, Pencil, Plus, RefreshCw, Search, Stethoscope, Upload, X } from "lucide-react";
 import type { AggregationBaseRecord, AggregationMonthlyRecord } from "../../../src/types";
 import { formatCpf } from "../../../src/utils/cpf";
 import { formatMoney } from "../../../src/utils/money";
@@ -11,23 +11,30 @@ import { normalizeText } from "../../../src/utils/text";
 import { EmptyState, MetricCard, StatusBadge } from "../components/Common";
 import { useApp } from "../state/AppContext";
 import { BenefitVehiclesTab } from "./BenefitVehiclesTab";
+import { PlanComparison } from "./PlanComparison";
 
-type BenefitTool="aggregation"|"transport";
+type BenefitTool="aggregation"|"transport"|"health"|"dental";
 type AggregationTab="base"|"monthly"|"vehicles";
 type BaseDraft={id?:string;employeeName:string;cpf:string;company:string;city:string;bank:string;baseValue:string;notes:string;activeMode:"QUARK"|"ATIVO"|"DESLIGADO";sourceLabel?:string};
 
 const emptyDraft:BaseDraft={employeeName:"",cpf:"",company:"",city:"",bank:"MENTORE",baseValue:"",notes:"",activeMode:"QUARK"};
 const hasPaymentDifference=(item:AggregationMonthlyRecord)=>Math.abs(item.baseValue-item.amountDue)>0.005;
 
-export function BenefitsPage(){
+export function BenefitsPage({onImport}:{onImport?:()=>void}={}){
+  const app=useApp();
   const[tool,setTool]=useState<BenefitTool>("aggregation");
+  const isPlan=tool==="health"||tool==="dental";
   return <div className="stack-gap">
-    <div className="page-heading compact"><div><h2>Benefícios</h2><p>Cadastros e fechamentos independentes da Folha de Pagamento.</p></div></div>
+    <div className="page-heading compact"><div><h2>Benefícios</h2><p>Cadastros, fechamentos e conferências dos benefícios.</p></div>{isPlan&&<label className="field competence-filter"><span>COMPETÊNCIA DA FOLHA</span><select value={app.selectedCompetence??""} disabled={app.payrollLoading||!app.payrollMonths.length} onChange={event=>void app.selectCompetence(event.target.value)}>{!app.payrollMonths.length&&<option value="">Nenhuma competência</option>}{app.payrollMonths.map(month=><option key={month.id} value={month.competence}>{month.competence}</option>)}</select><small>{app.payrollLoading?"Carregando dados...":`${app.payrollMonths.length} competência(s) disponível(is)`}</small></label>}</div>
     <div className="benefit-module-tabs">
-      <button className={tool==="aggregation"?"active":""} onClick={()=>setTool("aggregation")}><Boxes size={18}/><span><strong>Agregamento</strong><small>Base, ocorrências e fechamento mensal</small></span></button>
-      <button className={tool==="transport"?"active":""} onClick={()=>setTool("transport")}><Bus size={18}/><span><strong>Vale Transporte</strong><small>Estrutura reservada para a próxima etapa</small></span></button>
+      <button className={tool==="aggregation"?"active":""} aria-pressed={tool==="aggregation"} onClick={()=>setTool("aggregation")}><Boxes size={18}/><span><strong>Agregamento</strong><small>Base, ocorrências e fechamento mensal</small></span></button>
+      <button className={tool==="transport"?"active":""} aria-pressed={tool==="transport"} onClick={()=>setTool("transport")}><Bus size={18}/><span><strong>Vale Transporte</strong><small>Estrutura reservada para a próxima etapa</small></span></button>
+      <button className={tool==="health"?"active":""} aria-pressed={tool==="health"} onClick={()=>setTool("health")}><HeartPulse size={18}/><span><strong>Plano de Saúde</strong><small>Conferência com a folha importada</small></span></button>
+      <button className={tool==="dental"?"active":""} aria-pressed={tool==="dental"} onClick={()=>setTool("dental")}><Stethoscope size={18}/><span><strong>Plano Odontológico</strong><small>Conferência com a folha importada</small></span></button>
     </div>
-    {tool==="aggregation"?<AggregationModule/>:<section className="surface"><EmptyState icon={<Bus/>} title="Vale Transporte" description="A área foi separada do Agregamento e ficará disponível para configurarmos as regras específicas na próxima etapa."/></section>}
+    {tool==="aggregation"&&<AggregationModule/>}
+    {tool==="transport"&&<section className="surface"><EmptyState icon={<Bus/>} title="Vale Transporte" description="A área foi separada do Agregamento e ficará disponível para configurarmos as regras específicas na próxima etapa."/></section>}
+    {isPlan&&<PlanComparison key={tool} kind={tool} onImport={onImport}/>}
   </div>;
 }
 

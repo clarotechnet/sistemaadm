@@ -24,6 +24,6 @@ export function RHControlApp({user,initialRoute="dashboard"}:{user:UserProfile;i
   useEffect(()=>{const pop=()=>setRoute(routeFromPath());window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop)},[]);
   const onImport=()=>{setOpenPayrollImport(true);history.pushState({},"","/payroll");setRoute("payroll")};
   const navigate=(next:AppRoute)=>{setOpenPayrollImport(false);setRoute(next)};
-  const page=route==="dashboard"?<DashboardPage navigate={navigate}/>:route==="payroll"?<PayrollPage initialTab={openPayrollImport?"imports":undefined}/>:route==="conferencia"?<PayrollAuditPage onImport={onImport}/>:route==="documents"?<EmployeeDocumentsPage/>:route==="pdfs"?<PdfToolsPage/>:route==="reports"?<ReportsPage/>:route==="history"?<HistoryPage/>:route==="users"?<UsersPage/>:route==="benefits"?<BenefitsPage/>:<SettingsPage/>;
+  const page=route==="dashboard"?<DashboardPage navigate={navigate}/>:route==="payroll"?<PayrollPage initialTab={openPayrollImport?"imports":undefined}/>:route==="conferencia"?<PayrollAuditPage onImport={onImport}/>:route==="documents"?<EmployeeDocumentsPage/>:route==="pdfs"?<PdfToolsPage/>:route==="reports"?<ReportsPage/>:route==="history"?<HistoryPage/>:route==="users"?<UsersPage/>:route==="benefits"?<BenefitsPage onImport={onImport}/>:<SettingsPage/>;
   return <AppProvider user={user}><AppShell route={route} onNavigate={navigate}>{page}</AppShell><Toasts/></AppProvider>;
 }

@@ -162,14 +162,17 @@ body{font-size:14px}.control-shell{min-height:100vh;display:flex;--sidebar-width
 
 /* Fluid application shell: adapts to viewport resolution without distorting the brand. */
 :root{
-  --control-sidebar-width:clamp(220px,17vw,260px);
-  --control-sidebar-collapsed:clamp(68px,5.4vw,82px);
+  --control-sidebar-width:clamp(200px,15vw,224px);
+  --control-sidebar-collapsed:clamp(60px,4.5vw,68px);
   --control-sidebar-pad:clamp(10px,1vw,16px);
   --control-logo-size:clamp(40px,3vw,48px);
   --control-content-pad:clamp(18px,2.4vw,36px);
 }
 .control-sidebar{width:var(--control-sidebar-width);padding-left:var(--control-sidebar-pad);padding-right:var(--control-sidebar-pad)}
-.control-main{margin-left:var(--control-sidebar-width);width:calc(100% - var(--control-sidebar-width));min-width:0;overflow-x:hidden}
+/* Clip horizontal overflow without creating a scroll container that breaks the sticky header. */
+.control-main{margin-left:var(--control-sidebar-width);width:calc(100% - var(--control-sidebar-width));min-width:0;overflow-x:clip}
+.control-sidebar nav{min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.control-sidebar nav button,.control-sidebar .lgpd-box,.control-sidebar .collapse-button,.sidebar-section-label{flex-shrink:0}
 .control-brand{width:100%;height:clamp(54px,5vw,62px);min-height:clamp(54px,5vw,62px);padding:0 clamp(4px,.55vw,8px);gap:clamp(9px,.8vw,12px);overflow:hidden}
 .sidebar-company-logo{width:var(--control-logo-size);height:var(--control-logo-size);min-width:var(--control-logo-size);min-height:var(--control-logo-size);aspect-ratio:1/1;object-fit:contain}
 .control-brand strong{font-size:clamp(15px,1.05vw,18px)}
@@ -183,7 +186,8 @@ body{font-size:14px}.control-shell{min-height:100vh;display:flex;--sidebar-width
 .users-kpi-grid{grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr))}
 .users-kpi-grid .users-kpi-card:last-child{grid-column:auto}
 @media(max-width:900px){
-  .control-sidebar{width:min(82vw,280px)!important;padding-left:14px;padding-right:14px}
+  .control-sidebar{width:min(82vw,224px)!important;padding-left:14px;padding-right:14px}
+  .control-main,.sidebar-collapsed .control-main{margin-left:0;width:100%}
   .control-brand{height:58px;min-height:58px}
   .sidebar-company-logo{width:44px;height:44px;min-width:44px;min-height:44px}
 }
@@ -209,15 +213,15 @@ body{font-size:14px}.control-shell{min-height:100vh;display:flex;--sidebar-width
   .row-actions .user-action{height:30px!important;min-width:72px;padding:0 8px!important;font-size:8px!important}
 }
 
-/* Comfortable desktop density for HD/1366-1600px screens at browser zoom 100%. */
+/* Compact sidebar for HD/1366-1600px screens at browser zoom 100%. */
 @media (min-width:901px) and (max-width:1600px){
-  :root{--control-sidebar-width:290px;--control-sidebar-collapsed:78px;--control-logo-size:48px;--control-content-pad:28px}
-  .control-sidebar{padding:24px 14px 16px}
-  .control-brand{height:60px;min-height:60px;margin-bottom:24px;padding:0 8px;gap:13px}
-  .control-brand strong{font-size:20px}.control-brand small{font-size:10px}
+  :root{--control-sidebar-width:220px;--control-sidebar-collapsed:64px;--control-logo-size:40px;--control-content-pad:28px}
+  .control-sidebar{padding:18px 12px 12px}
+  .control-brand{height:52px;min-height:52px;margin-bottom:18px;padding:0 6px;gap:10px}
+  .control-brand strong{font-size:16px}.control-brand small{font-size:9px}
   .sidebar-section-label{font-size:9px;padding:0 12px 8px}
-  .control-sidebar nav{gap:3px}.control-sidebar nav button,.collapse-button{height:46px;padding:0 12px;gap:12px;font-size:14px}
-  .lgpd-box{padding:11px;gap:9px}.lgpd-box strong{font-size:10px}.lgpd-box small{font-size:8px}
+  .control-sidebar nav{gap:2px}.control-sidebar nav button,.collapse-button{height:38px;padding:0 10px;gap:10px;font-size:12px}
+  .lgpd-box{padding:9px;gap:8px}.lgpd-box strong{font-size:9px}.lgpd-box small{font-size:7px}
   .control-topbar{height:80px;padding:0 28px}.topbar-title h1{font-size:23px}.topbar-title>div>span{font-size:9px}
   .notification-button{width:42px;height:42px}.account-button strong{font-size:12px}.account-button small{font-size:10px}.avatar{width:40px;height:40px}
   .control-content{padding:30px 28px 52px}
@@ -650,10 +654,11 @@ body{font-size:14px}.control-shell{min-height:100vh;display:flex;--sidebar-width
 :root[data-theme="dark"] .aggregation-notes-cell{color:#b6bcc3}
 
 /* Benefícios independente · Agregamento */
-.benefit-module-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.benefit-module-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .benefit-module-tabs>button{display:flex;align-items:center;gap:12px;text-align:left;padding:16px;border:1px solid #ddd;border-radius:10px;background:#fff;color:#222;cursor:pointer}
 .benefit-module-tabs>button>span{display:flex;flex-direction:column;gap:3px}.benefit-module-tabs strong{font-size:12px}.benefit-module-tabs small{font-size:8px;color:#777}
 .benefit-module-tabs>button.active{border-color:#e31a1a;background:#fff7f7;color:#c81313;box-shadow:0 4px 14px rgba(190,20,20,.08)}
+@media(max-width:1100px){.benefit-module-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .benefit-inner-tabs{margin:0}.aggregation-edit-card{overflow:hidden}.aggregation-form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:14px}
 .aggregation-form-grid .field{margin:0}.aggregation-notes{grid-column:span 2}.aggregation-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 12px}
 .aggregation-toolbar .search-box{flex:1 1 250px}.aggregation-toolbar>select{height:38px;border:1px solid #ddd;border-radius:7px;background:#fff;padding:0 10px;font-size:9px;min-width:135px}
