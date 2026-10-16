@@ -4,14 +4,15 @@ import { normalizeHeader } from "../utils/text";
 const HEADER_HINTS = ["CPF", "NOME", "COLABORADOR", "FUNCIONARIO", "LIQUIDO", "PLANO", "FOLHA", "VALOR", "COMPETENCIA"];
 const OVERTIME_PERCENTAGES = ["50%", "60%", "70%", "100%"];
 
-export async function readExcel(file: File): Promise<ParsedWorkbook> {
+export async function readExcel(file: File, options: {preserveBlankRows?:boolean} = {}): Promise<ParsedWorkbook> {
   const XLSX = await import("xlsx");
-  if (/\.xls$/i.test(file.name)) {
+  const legacyFormat = /\.xls$/i.test(file.name);
+  if (legacyFormat) {
     const cptable = await import("xlsx/dist/cpexcel");
     XLSX.set_cptable(cptable);
   }
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, codepage: 1252, raw: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, ...(legacyFormat ? {codepage:1252} : {}), raw: true });
   const sheets: ParsedSheet[] = [];
   const warnings: string[] = [];
   for (const name of workbook.SheetNames) {
@@ -28,7 +29,7 @@ export async function readExcel(file: File): Promise<ParsedWorkbook> {
       headerRow,
       headers,
       normalizedHeaders: headers.map(normalizeHeader),
-      rows: rows.slice(headerRow + 1).filter(row => row.some(value => String(value ?? "").trim() !== "")),
+      rows: options.preserveBlankRows ? rows.slice(headerRow + 1) : rows.slice(headerRow + 1).filter(row => row.some(value => String(value ?? "").trim() !== "")),
     });
   }
   if (!sheets.length) throw new Error("Nenhuma aba com cabeçalho reconhecível foi encontrada no arquivo.");

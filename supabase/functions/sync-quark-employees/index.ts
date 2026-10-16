@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.114.0";
 import { parseQuarkEmployeeDate } from "./date-utils.ts";
+import { quarkEmployeeRegistration } from "./employee-registration.ts";
 
 const PROD_ORIGIN = "https://administrativo.clarotechnet.com.br";
 const allowedOrigins = new Set([PROD_ORIGIN, "http://localhost:3000", "http://localhost:5173"]);
@@ -102,7 +103,7 @@ function normalizeEmployee(record: JsonObject, unitId: string, unitName: string)
     cpf,
     document_number: documentNumber,
     name,
-    registration: firstText(record.matricula, record.numeroMatricula, record.numero_matricula),
+    registration: quarkEmployeeRegistration(record),
     department,
     job_title: firstText(cargo.denominacao, record.funcao),
     status,

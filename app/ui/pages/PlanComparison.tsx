@@ -3,53 +3,71 @@
 import { useMemo, useState } from "react";
 import { Download, HeartPulse, Search, Stethoscope, Trash2, Upload } from "lucide-react";
 import type { ComparisonRow } from "../../../src/types";
-import { readExcel, exportComparisonExcel } from "../../../src/services/excel";
-import { removePayrollComparison, savePayrollComparison } from "../../../src/services/browser-backend";
-import { comparePlan, parseReference, type ComparisonKind } from "../../../src/modules/comparisons/processor";
+import { exportComparisonExcel } from "../../../src/services/excel";
+import { removePayrollComparison } from "../../../src/services/browser-backend";
+import type { ComparisonKind } from "../../../src/modules/comparisons/processor";
+import { comparePlanBase, latestPlanBase, type PlanBaseVersion } from "../../../src/modules/benefits/plan-base";
 import { formatCpf } from "../../../src/utils/cpf";
 import { formatMoney } from "../../../src/utils/money";
-import { FileDropzone } from "../components/FileDropzone";
-import { ConfirmationModal, EmptyState, MetricCard, ProcessingLog, StatusBadge } from "../components/Common";
+import { ConfirmationModal, EmptyState, MetricCard, StatusBadge } from "../components/Common";
 import { useApp } from "../state/AppContext";
 
-export function PlanComparison({ kind, onImport }: { kind: ComparisonKind; onImport?: () => void }) {
+type PlanComparisonProps = {kind:ComparisonKind;onImport?:()=>void;baseVersions?:readonly PlanBaseVersion[];baseLoading?:boolean;baseError?:string};
+export function PlanComparison({kind,onImport,...baseProps}:PlanComparisonProps) {
   const {activePayroll}=useApp();
-  return <PlanComparisonContent key={`${kind}:${activePayroll?.id??"no-payroll"}`} kind={kind} onImport={onImport}/>;
+  return <PlanComparisonContent key={`${kind}:${activePayroll?.id??"no-payroll"}`} kind={kind} onImport={onImport} {...baseProps}/>;
 }
 
-function PlanComparisonContent({ kind, onImport }: { kind: ComparisonKind; onImport?: () => void }) {
-  const app=useApp(); const state=kind==="health"?app.health:app.dental; const setState=kind==="health"?app.setHealth:app.setDental; const label=kind==="health"?"Plano de Saúde":"Plano Odontológico";
-  const [files,setFiles]=useState<File[]>([]);const[toleranceDraft,setToleranceDraft]=useState<{value:string;defaultValue:number}|null>(null);const[busy,setBusy]=useState(false);const[logs,setLogs]=useState<string[]>([]);const[progress,setProgress]=useState(0);const[query,setQuery]=useState("");const[filter,setFilter]=useState("TODOS");const[page,setPage]=useState(1);const[replacing,setReplacing]=useState(false);const[removeOpen,setRemoveOpen]=useState(false);
+function PlanComparisonContent({kind,onImport,baseVersions,baseLoading,baseError}:PlanComparisonProps) {
+  const app=useApp();
+  const savedState=kind==="health"?app.savedHealth:app.savedDental;
+  const setState=kind==="health"?app.setSavedHealth:app.setSavedDental;
+  const label=kind==="health"?"Plano de Saúde":"Plano Odontológico";
+  const valueLabel=kind==="health"?"Saúde Folha":"Odonto Folha";
+  const [toleranceDraft,setToleranceDraft]=useState<{value:string;defaultValue:number}|null>(null);
+  const [busy,setBusy]=useState(false),[removeOpen,setRemoveOpen]=useState(false);
+  const [query,setQuery]=useState(""),[filter,setFilter]=useState("TODOS"),[page,setPage]=useState(1);
   const tolerance=toleranceDraft?.defaultValue===app.settings.financialTolerance?toleranceDraft.value:app.settings.financialTolerance.toFixed(2).replace(".",",");
-  const setTolerance=(value:string)=>setToleranceDraft({value,defaultValue:app.settings.financialTolerance});
-  const filtered=useMemo(()=>{const normalized=query.replace(/\D/g,"").toLowerCase();return(state?.rows??[]).filter(row=>(!query||row.name.toLowerCase().includes(query.toLowerCase())||row.cpf.includes(normalized))&&(filter==="TODOS"||(filter==="OK"&&row.status==="OK")||(filter==="DIVERGENTES"&&row.status==="DIVERGENTE")||(filter==="AUSENTES"&&row.status.includes("NÃO LOCALIZADO"))));},[state,query,filter]); const perPage=20;const totalPages=Math.max(1,Math.ceil(filtered.length/perPage));const visible=filtered.slice((page-1)*perPage,page*perPage);
-  const run=async()=>{
-    if(!app.activePayroll){app.toast("warning","Nenhuma folha selecionada",`Selecione ou importe a competência da Folha de Pagamento antes de conferir ${label}.`);return;}
-    if(!files[0]){app.toast("warning","Selecione o arquivo de referência");return;}
-    setBusy(true);setLogs(["Lendo arquivo de referência...","Procurando cabeçalho e coluna CPF..."]);setProgress(22);
-    try{
-      const workbook=await readExcel(files[0]);setProgress(48);
-      const reference=parseReference(workbook,kind);
-      setLogs(current=>[...current,`${reference.length} CPFs encontrados na referência.`,`Comparando valores de ${label} com a folha ${app.activePayroll!.competence}...`]);
-      const toleranceValue=Number(tolerance.replace(",","."))||0.01;
-      const result=comparePlan(app.activePayroll,reference,kind,toleranceValue);
-      const draft={...result,processedAt:new Date().toISOString(),fileName:files[0].name,tolerance:toleranceValue,processedBy:app.user.name};
-      setProgress(82);setLogs(current=>[...current,"Salvando o resultado no banco compartilhado..."]);
-      const saved=await savePayrollComparison(app.activePayroll.id,kind,files[0],toleranceValue,draft);
-      setState(saved);setReplacing(false);setProgress(100);
-      setLogs(current=>[...current,`${result.summary.divergent} divergência(s) encontrada(s).`,`Resultado de ${app.activePayroll!.competence} salvo e disponível para a equipe.`]);
-      app.addAudit({operation:`Comparou ${label}`,module:label,result:`${app.activePayroll.competence}: ${result.summary.ok} OK, ${result.summary.divergent} divergentes, ${result.summary.missing} ausentes`,status:result.summary.divergent||result.summary.missing?"AVISO":"SUCESSO",fileName:files[0].name,processedCount:result.summary.total,okCount:result.summary.ok,divergentCount:result.summary.divergent,missingCount:result.summary.missing});
-      app.toast("success","Comparativo salvo",`${label} · ${app.activePayroll.competence} · ${result.summary.divergent} divergências e ${result.summary.missing} ausências.`);
-    }catch(error){app.toast("error","Não foi possível concluir o comparativo",error instanceof Error?error.message:"Verifique o arquivo informado.");}
-    finally{setBusy(false);}
+  const toleranceValue=tolerance.trim()?Number(tolerance.replace(",",".")):NaN;
+  const validTolerance=Number.isFinite(toleranceValue)&&toleranceValue>=0;
+  const currentBase=useMemo(()=>baseVersions?latestPlanBase(baseVersions.filter(row=>row.kind===kind)):[],[baseVersions,kind]);
+  const pendingCpfs=useMemo(()=>new Set(currentBase.filter(row=>row.status==="PENDENTE").map(row=>row.cpf)),[currentBase]);
+  // Viewing a result performs no writes; saved snapshots never replace the live calculation.
+  const result=useMemo(()=>!app.payrollLoading&&app.activePayroll&&!baseLoading&&!baseError&&baseVersions&&currentBase.length&&validTolerance
+    ?comparePlanBase(app.activePayroll,baseVersions,kind,toleranceValue):null,
+  [app.payrollLoading,app.activePayroll,baseLoading,baseError,baseVersions,currentBase.length,validTolerance,kind,toleranceValue]);
+  const filtered=useMemo(()=>{
+    const text=query.trim().toLocaleLowerCase("pt-BR"),digits=text.replace(/\D/g,"");
+    return(result?.rows??[]).filter(row=>(!text||row.name.toLocaleLowerCase("pt-BR").includes(text)||Boolean(digits&&row.cpf.includes(digits)))&&
+      (filter==="TODOS"||(filter==="OK"&&row.status==="OK")||(filter==="DIVERGENTES"&&row.status==="DIVERGENTE")||(filter==="AUSENTES"&&row.status.includes("NÃO LOCALIZADO"))));
+  },[result,query,filter]);
+  const perPage=20,totalPages=Math.max(1,Math.ceil(filtered.length/perPage)),currentPage=Math.min(page,totalPages);
+  const visible=filtered.slice((currentPage-1)*perPage,currentPage*perPage);
+  const removeSaved=async()=>{
+    if(!app.activePayroll||busy)return;
+    setBusy(true);
+    try {
+      await removePayrollComparison(app.activePayroll.id,kind);setState(null);
+      app.addAudit({operation:`Removeu ${label}`,module:label,result:`Competência ${app.activePayroll.competence}: resultado salvo excluído`,status:"AVISO"});
+      app.toast("success","Resultado salvo excluído","A conferência automática, a base e a folha continuam disponíveis.");
+    }catch(error){app.toast("error","Não foi possível excluir o resultado salvo",error instanceof Error?error.message:undefined);}finally{setBusy(false);}
   };
-  if(app.payrollLoading)return <EmptyState icon={kind==="health"?<HeartPulse/>:<Stethoscope/>} title="Carregando folha da competência..." description="Aguarde o carregamento da folha e dos comparativos salvos."/>;
-  if(!app.activePayroll)return <EmptyState icon={kind==="health"?<HeartPulse/>:<Stethoscope/>} title="A Folha de Pagamento é obrigatória" description={`Importe a folha em Dados da Folha → Importações antes de enviar o arquivo de referência do ${label}.`} action={onImport?<button className="button primary" onClick={onImport}><Upload size={16}/> Importar Folha de Pagamento</button>:undefined}/>;
-  return <div className="stack-gap">{(!state||replacing)&&<section className="surface import-surface"><div className="section-header"><div><h3>Conferência · {label}</h3><p>A folha da competência selecionada será comparada ao arquivo de referência abaixo.</p></div><span className="status-badge neutral">Folha: {app.activePayroll.competence}</span></div><div className="import-form"><label className="field comparison-competence"><span>Competência do arquivo</span><select value={app.selectedCompetence??""} disabled={busy||app.payrollLoading} onChange={event=>void app.selectCompetence(event.target.value)}>{app.payrollMonths.map(month=><option key={month.id} value={month.competence}>{month.competence}</option>)}</select><small>Este arquivo será comparado somente com a Folha de Pagamento desta competência.</small></label><div className="two-fields"><div className="grow"><FileDropzone accept=".xls,.xlsx" files={files} onFiles={setFiles} label={`Arraste a referência de ${label}`} /></div><label className="field narrow"><span>Tolerância financeira</span><div className="money-input"><span>R$</span><input value={tolerance} onChange={event=>setTolerance(event.target.value)}/></div><small>Padrão: R$ {app.settings.financialTolerance.toFixed(2).replace(".",",")}</small></label></div><ProcessingLog logs={logs} progress={progress}/><div className="form-actions"><button className="button primary" disabled={busy||!files.length} onClick={run}>{busy?"Comparando...":"Iniciar comparativo"}</button></div></div></section>}
-    {state&&!replacing&&<><div className="result-title"><div><span className="status-badge success">CONCLUÍDO</span><h3>Resultado · {label}</h3><p>Competência: {app.activePayroll.competence} · Referência: {state.fileName} · {new Date(state.processedAt).toLocaleString("pt-BR")}</p></div><div><button className="button secondary" onClick={()=>setReplacing(true)}>Refazer comparativo</button><button className="button danger" onClick={()=>setRemoveOpen(true)}><Trash2 size={15}/> Excluir comparativo</button><button className="button primary" onClick={()=>exportComparisonExcel(state.rows,`Comparativo_${kind}_${app.activePayroll?.competence.replace("/","-")}.xlsx`,label)}><Download size={16}/> Gerar Excel</button></div></div><div className="metrics-grid five"><MetricCard label="CPFS COMPARADOS" value={state.summary.total}/><MetricCard label="VALORES OK" value={state.summary.ok} tone="success"/><MetricCard label="DIVERGÊNCIAS" value={state.summary.divergent} tone="danger"/><MetricCard label="AUSENTES" value={state.summary.missing} tone="warning"/><MetricCard label="DIFERENÇA TOTAL" value={formatMoney(state.summary.differenceTotal)} tone={Math.abs(state.summary.differenceTotal)>.01?"danger":"success"}/></div><section className="surface table-surface"><div className="table-toolbar"><div className="search-box"><Search size={16}/><input placeholder="Pesquisar nome ou CPF" value={query} onChange={event=>{setQuery(event.target.value);setPage(1);}}/></div><div className="filter-pills">{["TODOS","OK","DIVERGENTES","AUSENTES"].map(item=><button className={filter===item?"active":""} key={item} onClick={()=>{setFilter(item);setPage(1);}}>{item}</button>)}</div><span>{filtered.length} resultado(s)</span></div><ComparisonTable rows={visible} valueLabel={kind==="health"?"Saúde Folha":"Odonto Folha"}/><div className="pagination"><span>Página {page} de {totalPages}</span><div><button disabled={page===1} onClick={()=>setPage(value=>value-1)}>Anterior</button><button disabled={page===totalPages} onClick={()=>setPage(value=>value+1)}>Próxima</button></div></div></section></>}
-    <ConfirmationModal open={removeOpen} danger title={`Excluir ${label} de ${app.activePayroll.competence}?`} description={`O resultado e todas as linhas processadas deste comparativo serão removidos para toda a equipe. A Folha de Pagamento ${app.activePayroll.competence} não será apagada.`} confirmLabel="Excluir comparativo" onClose={()=>setRemoveOpen(false)} onConfirm={()=>{void removePayrollComparison(app.activePayroll!.id,kind).then(()=>{setState(null);setReplacing(false);setFiles([]);setLogs([]);setProgress(0);app.addAudit({operation:`Removeu ${label}`,module:label,result:`Competência ${app.activePayroll!.competence}: comparativo excluído`,status:"AVISO"});app.toast("success","Comparativo excluído",`${label} · ${app.activePayroll!.competence} removido do banco.`)}).catch(error=>app.toast("error","Não foi possível excluir o comparativo",error instanceof Error?error.message:undefined));}} />
+  if(app.payrollLoading)return <EmptyState icon={kind==="health"?<HeartPulse/>:<Stethoscope/>} title="Carregando folha da competência..." description="A conferência será exibida automaticamente após o carregamento."/>;
+  if(!app.activePayroll)return <EmptyState icon={kind==="health"?<HeartPulse/>:<Stethoscope/>} title="A Folha de Pagamento é obrigatória" description="Importe a folha em Dados da Folha → Importações. Depois, selecione a competência para comparar com a Base de dados do plano, sem enviar outro arquivo." action={onImport?<button className="button primary" onClick={onImport}><Upload size={16}/> Importar Folha de Pagamento</button>:undefined}/>;
+  return <div className="stack-gap plan-monthly-comparison">
+    <section className="surface plan-base-comparison"><div><h3>Conferência automática · {label}</h3><p>Folha: <strong>{app.activePayroll.competence}</strong> · {currentBase.filter(row=>row.status==="ATIVO").length} cadastro(s) ativo(s) na base atual. O desconto da folha é comparado por CPF com o valor previsto na Base de dados deste plano.</p><p>Usa o cadastro mais recente de cada CPF, mesmo que a data da base seja diferente da folha. O resultado é calculado automaticamente para toda a equipe autorizada, sem precisar salvar. Alterações na base são consultadas novamente ao voltar à aba e a cada minuto.</p>{pendingCpfs.size>0&&<p className="plan-base-pending">{pendingCpfs.size} CPF(s) pendentes RH: valor de referência desconhecido, sem soma ou desconto presumido.</p>}</div><label className="field"><span>Tolerância (R$)</span><input aria-label="Tolerância da conferência pela base" inputMode="decimal" value={tolerance} onChange={event=>setToleranceDraft({value:event.target.value,defaultValue:app.settings.financialTolerance})}/></label></section>
+    {baseLoading?<EmptyState title="Carregando a Base de dados..." description="O resultado aparecerá automaticamente quando a base estiver disponível."/>:baseError?<div className="plan-base-error" role="alert">{baseError}</div>:!currentBase.length?<EmptyState title="Nenhum cadastro na Base de dados deste plano" description="Cadastre ou importe a base na aba Base de dados. Depois, ela poderá ser comparada com qualquer folha do sistema, independentemente do mês."/>:!validTolerance?<div className="plan-base-error" role="alert">Informe uma tolerância válida, maior ou igual a zero.</div>:result&&<>
+      <div className="result-title"><div><span className="status-badge success">CÁLCULO AUTOMÁTICO</span><h3>Resultado · {label}</h3><p>Competência: {app.activePayroll.competence} · Referência: Base de dados atual · Diferença = desconto na folha menos desconto previsto.</p></div><div><button className="button primary" onClick={()=>exportComparisonExcel(result.rows,`Comparativo_${kind}_${app.activePayroll?.competence.replace("/","-")}.xlsx`,label)}><Download size={16}/> Gerar Excel</button></div></div>
+      <div className="metrics-grid five"><MetricCard label="CPFS COMPARADOS" value={result.summary.total}/><MetricCard label="VALORES OK" value={result.summary.ok} tone="success"/><MetricCard label="DIVERGÊNCIAS" value={result.summary.divergent} tone="danger"/><MetricCard label="AUSENTES / PENDENTES" value={result.summary.missing} tone="warning"/><MetricCard label="DIFERENÇA TOTAL" value={formatMoney(result.summary.differenceTotal)} tone={Math.abs(result.summary.differenceTotal)>toleranceValue?"danger":"success"}/></div>
+      <section className="surface table-surface plan-live-result" aria-label="Conferência automática pela base"><div className="table-toolbar"><div className="search-box"><Search size={16}/><input aria-label="Pesquisar conferência por nome ou CPF" placeholder="Pesquisar nome ou CPF" value={query} onChange={event=>{setQuery(event.target.value);setPage(1);}}/></div><div className="filter-pills">{["TODOS","OK","DIVERGENTES","AUSENTES"].map(item=><button className={filter===item?"active":""} key={item} onClick={()=>{setFilter(item);setPage(1);}}>{item}</button>)}</div><span>{filtered.length} resultado(s)</span></div><ComparisonTable rows={visible} valueLabel={valueLabel} pendingCpfs={pendingCpfs}/><div className="pagination"><span>Página {currentPage} de {totalPages}</span><div><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)}>Anterior</button><button disabled={currentPage===totalPages} onClick={()=>setPage(currentPage+1)}>Próxima</button></div></div></section>
+    </>}
+    {savedState&&<details className="surface plan-saved-result"><summary>Comparativo anterior (histórico) · {new Date(savedState.processedAt).toLocaleString("pt-BR")}</summary><div className="section-header"><div><h3>Resultado salvo · {label}</h3><p>Competência: {app.activePayroll.competence} · Referência: {savedState.fileName} · {savedState.processedBy}. Este registro não muda ao abrir a tela ou editar a base.</p></div><button className="button danger" disabled={busy} onClick={()=>setRemoveOpen(true)}><Trash2 size={15}/> Excluir resultado salvo</button></div><ComparisonTable rows={savedState.rows} valueLabel={valueLabel}/></details>}
+    <ConfirmationModal open={removeOpen} danger title={`Excluir o resultado salvo de ${label} de ${app.activePayroll.competence}?`} description="Somente o comparativo salvo será removido para a equipe. A conferência automática, a Base de dados e a Folha de Pagamento não serão alteradas." confirmLabel="Excluir resultado salvo" onClose={()=>setRemoveOpen(false)} onConfirm={()=>void removeSaved()}/>
   </div>;
 }
 
-function ComparisonTable({rows,valueLabel}:{rows:ComparisonRow[];valueLabel:string}){const{settings}=useApp();return <div className="table-scroll"><table className="data-table"><thead><tr><th>Nome</th><th>CPF</th><th className="right">{valueLabel}</th><th className="right">Referência</th><th className="right">Diferença</th><th className="right">Líquido</th><th className="center">Colunas</th><th>Status</th></tr></thead><tbody>{rows.map(row=><tr className={row.status==="DIVERGENTE"?"row-danger":row.status.includes("NÃO LOCALIZADO")?"row-warning":""} key={row.id}><td><strong>{row.name}</strong></td><td className="mono">{formatCpf(row.cpf,settings.maskCpf)}</td><td className="right">{formatMoney(row.payrollValue)}</td><td className="right">{formatMoney(row.referenceValue)}</td><td className={`right ${row.difference&&Math.abs(row.difference)>.01?"negative":"positive"}`}>{formatMoney(row.difference)}</td><td className="right">{formatMoney(row.liquid)}</td><td className="center">{row.columnCount}</td><td><StatusBadge status={row.status}/></td></tr>)}</tbody></table>{!rows.length&&<div className="table-empty">Nenhum registro corresponde aos filtros aplicados.</div>}</div>}
+function ComparisonTable({rows,valueLabel,pendingCpfs}:{rows:ComparisonRow[];valueLabel:string;pendingCpfs?:ReadonlySet<string>}) {
+  const {settings}=useApp();
+  return <div className="table-scroll"><table className="data-table"><thead><tr><th>Nome</th><th>CPF</th><th className="right">{valueLabel}</th><th className="right">Previsto na base</th><th className="right">Diferença</th><th className="right">Líquido</th><th className="center">Colunas</th><th>Status</th></tr></thead><tbody>{rows.map(row=><tr className={row.status==="DIVERGENTE"?"row-danger":row.status.includes("NÃO LOCALIZADO")?"row-warning":""} key={row.id}><td><strong>{row.name}</strong></td><td className="mono">{formatCpf(row.cpf,settings.maskCpf)}</td><td className="right">{formatMoney(row.payrollValue)}</td><td className="right">{formatMoney(row.referenceValue)}</td><td className={`right ${row.difference&&Math.abs(row.difference)>.01?"negative":"positive"}`}>{formatMoney(row.difference)}</td><td className="right">{formatMoney(row.liquid)}</td><td className="center">{row.columnCount}</td><td><StatusBadge status={pendingCpfs?.has(row.cpf)?"PENDENTE RH":row.status==="NÃO LOCALIZADO NA REFERÊNCIA"?"SEM VALOR PREVISTO NA BASE":row.status}/></td></tr>)}</tbody></table>{!rows.length&&<div className="table-empty">Nenhum registro corresponde aos filtros aplicados.</div>}</div>;
+}
 

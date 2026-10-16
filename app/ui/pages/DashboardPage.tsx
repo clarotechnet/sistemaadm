@@ -30,8 +30,8 @@ export function DashboardPage({ navigate }: { navigate: (route: AppRoute) => voi
     {activePayroll ? <button className="active-file-banner" onClick={() => navigate("payroll")}><span className="document-icon">XLS</span><span><small>FOLHA ATIVA · {activePayroll.competence}</small><strong>{activePayroll.fileName}</strong><em>Importada em {new Date(activePayroll.importedAt).toLocaleString("pt-BR")} por {activePayroll.importedBy}</em></span><span className="status-badge success">Ativa</span><span className="button secondary">Ver folha</span></button> : <button className="active-file-banner empty" onClick={() => navigate("payroll")}><Upload /><span><strong>Nenhuma folha ativa</strong><em>Importe a Folha de Pagamento para iniciar as conferências.</em></span><span className="button primary">Importar folha</span></button>}
     <div className="metrics-grid">
       <MetricCard label="COLABORADORES" value={activePayroll?.records.length ?? 0} detail="na folha ativa" />
-      <MetricCard label="PLANO DE SAÚDE" value={health?.summary.divergent ?? 0} detail="divergências" tone={health?.summary.divergent ? "danger" : "success"} />
-      <MetricCard label="PLANO ODONTOLÓGICO" value={dental?.summary.divergent ?? 0} detail="divergências" tone={dental?.summary.divergent ? "danger" : "success"} />
+      <MetricCard label="PLANO DE SAÚDE" value={health?.summary.divergent ?? "—"} detail="divergências" tone={!health?"neutral":health.summary.divergent ? "danger" : "success"} />
+      <MetricCard label="PLANO ODONTOLÓGICO" value={dental?.summary.divergent ?? "—"} detail="divergências" tone={!dental?"neutral":dental.summary.divergent ? "danger" : "success"} />
       <MetricCard label="PROCESSAMENTOS" value={audits.length} detail="nesta sessão" tone="success" />
     </div>
     <div className="dashboard-columns">
@@ -47,6 +47,6 @@ export function DashboardPage({ navigate }: { navigate: (route: AppRoute) => voi
 
 function OverviewItem({ icon, label, state }: { icon: React.ReactNode; label: string; state?: { summary: { total:number; ok:number; divergent:number; missing:number; differenceTotal:number } } | null }) {
   const percentage = state && state.summary.total ? Math.round(state.summary.ok / state.summary.total * 100) : 0;
-  return <div><span className="overview-icon">{icon}</span><span><strong>{label}</strong><small>{state ? `${state.summary.ok} corretos · ${state.summary.divergent} divergentes · diferença ${formatMoney(state.summary.differenceTotal)}` : "Processamento ainda não iniciado"}</small></span><div className="overview-progress"><i style={{ width: `${percentage}%` }} /></div><b>{state ? `${percentage}%` : "—"}</b></div>;
+  return <div><span className="overview-icon">{icon}</span><span><strong>{label}</strong><small>{state ? `${state.summary.ok} corretos · ${state.summary.divergent} divergentes · diferença ${formatMoney(state.summary.differenceTotal)}` : "Aguardando folha e base de dados"}</small></span><div className="overview-progress"><i style={{ width: `${percentage}%` }} /></div><b>{state ? `${percentage}%` : "—"}</b></div>;
 }
 

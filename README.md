@@ -51,7 +51,22 @@ As migrations SQL versionadas ficam em `supabase/migrations`. Para um projeto va
 
 ## Benefícios e comparativos de planos
 
-Os módulos de Benefícios aparecem na ordem Agregamento, Vale Transporte, Plano de Saúde e Plano Odontológico. Saúde e Odonto reutilizam a folha importada em **Dados da Folha → Importações** e os comparativos já salvos da competência selecionada, mantendo referência XLS/XLSX, tolerância, filtros, exportação Excel e exclusão do comparativo. Dados da Folha mantém Visão geral e Importações; mover as telas não exige alterar o banco nem reimportar os resultados existentes.
+Os módulos de Benefícios aparecem na ordem Agregamento, Vale Transporte, Plano de Saúde e Plano Odontológico. Saúde e Odonto reutilizam a folha importada em **Dados da Folha → Importações**. Ao abrir **Conferência mensal**, os descontos da folha da competência selecionada são comparados automaticamente por CPF com os valores da respectiva **Base de dados**, sem enviar outro arquivo nem clicar para iniciar. Há tolerância, filtros e exportação Excel. Dados da Folha mantém Visão geral e Importações.
+
+Saúde e Odonto têm **Base de dados** e **Conferência mensal**. O cadastro é versionado por CPF, plano e vigência mensal; editar, desativar ou excluir cria uma nova versão. O histórico pode ser consultado pela vigência e pela opção de versões. O cálculo na tela usa o cadastro mais recente de cada CPF na base atual, sem filtrar pela vigência ou pelo mês da folha. Qualquer folha importada pode ser comparada, inclusive uma anterior à base. A vigência permanece disponível para consultar o histórico cadastral, mas não limita a conferência. O cálculo acompanha as alterações da base e não é substituído por um comparativo antigo. O resultado automático usa os dados compartilhados e fica disponível a toda a equipe autorizada sem botão de salvar, inclusive nos indicadores do Dashboard e da folha. Alterações da base são consultadas ao voltar à aba e a cada minuto, sem fechar formulários. Comparativos antigos ficam separados apenas para consulta; abrir a tela não grava nem substitui esses registros. CPFs inativos/excluídos com cobrança na folha são conferidos contra zero; funcionários sem plano e sem cobrança não geram falsas ausências. As leituras e escritas exigem RH/Administrador, e o cliente não possui UPDATE/DELETE nas versões.
+
+Na importação da Hapvida, **DESC FOLHA** é o valor esperado do desconto, sem confundir FATURA ou BASE MENSALIDADE. No Odonto, **VALOR** tem prioridade sobre VALOR UNI. Cabeçalhos repetidos e separadores não são pessoas. CPFs repetidos ficam **Pendentes RH**, sem soma automática nem valor de referência presumido, mantendo os lançamentos de origem para análise. A confirmação de importação não desativa pessoas ausentes do arquivo.
+
+O Agregamento mensal mostra o último sucesso do QuarkRH por competência, responsável e ressalvas. Falhas posteriores não avançam a data do sucesso. A informação vem de `benefit_aggregation_sync_runs`, não do relógio do navegador.
+
+A migração aditiva está em `supabase/migrations/20261016153134_benefit_plan_bases.sql`. A verificação abaixo usa o projeto RH explicitamente confirmado, testa o SQL e RLS em transação revertida e não altera dados reais:
+
+```powershell
+node --import tsx scripts/benefit-plans-db.mjs --project=kdbnheeosaptxpwkmjbz
+# Acrescente --apply para instalar somente o schema. Sem esta opção, tudo é revertido.
+```
+
+O importador administrativo inicial possui `--seed-files --competence=2026-09`, exclusivo dos dois arquivos fornecidos de setembro/2026. Ele recusa uma base preexistente diferente, é idempotente pelo hash do arquivo e preserva o conflito odontológico para o RH. Não publica o site nem modifica os comparativos já salvos.
 
 ## Conferência de folha
 
@@ -61,7 +76,7 @@ Salário-base é opcional: a ausência ou coluna vazia não gera achado, inclusi
 
 Os indicadores são botões que filtram os mesmos registros contabilizados, limpando filtros anteriores e voltando à primeira página. Clicar novamente no indicador ativo ou em **Limpar filtros** exibe todos os registros. Os contadores são globais à competência e alguns grupos se sobrepõem. As exportações respeitam a lista filtrada e incluem os achados e a proporção descontos/bruto.
 
-Importações novas preservam detalhes financeiros reconhecidos em `payroll_records.audit_data`. Folhas antigas continuam legíveis, mas precisam ser reimportadas para acrescentar base, bruto, descontos e eventos. Como no fluxo existente, atualizar uma competência exige refazer seus comparativos de Saúde/Odonto.
+Importações novas preservam detalhes financeiros reconhecidos em `payroll_records.audit_data`. Folhas antigas continuam legíveis, mas precisam ser reimportadas para acrescentar base, bruto, descontos e eventos. Atualizar uma competência recalcula a conferência automática de Saúde/Odonto quando a folha é recarregada; os comparativos antigos permanecem preservados como histórico.
 
 O tratamento de achados fica em `payroll_audit_reviews`, protegido por RLS, com responsável, data e observação. Os campos de justificativa têm fundo/borda destacados, foco visível e contador de caracteres nos temas claro e escuro. Reimportar a folha ou qualquer referência, ampliar o conjunto de referências ou trocar os limites gera uma revisão diferente, sem reutilizar justificativas de valores anteriores. Marcar um achado como corrigido não modifica a folha.
 

@@ -1,6 +1,19 @@
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import type { AggregationBaseRecord, AggregationMonthlyRecord, EmployeeStatus } from "../types";
 
+type AggregationSyncRun={id:string;status:"RUNNING"|"SUCCESS"|"ERROR";started_at:string;completed_at:string|null;triggered_by_name:string;processed_count:number;warning_message:string|null};
+export type AggregationSyncInfo={lastSuccess:AggregationSyncRun|null;latestAttempt:AggregationSyncRun|null};
+export async function loadAggregationSyncInfo(competence:string):Promise<AggregationSyncInfo>{
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(competence))throw new Error("Competência inválida.");
+  const db=createSupabaseBrowserClient(),fields="id,status,started_at,completed_at,triggered_by_name,processed_count,warning_message";
+  const [last,latest]=await Promise.all([
+    db.from("benefit_aggregation_sync_runs").select(fields).eq("competence",competence+"-01").eq("status","SUCCESS").not("completed_at","is",null).order("completed_at",{ascending:false}).limit(1).maybeSingle(),
+    db.from("benefit_aggregation_sync_runs").select(fields).eq("competence",competence+"-01").order("started_at",{ascending:false}).limit(1).maybeSingle(),
+  ]);
+  if(last.error||latest.error)throw new Error(last.error?.message??latest.error!.message);
+  return{lastSuccess:last.data as AggregationSyncRun|null,latestAttempt:latest.data as AggregationSyncRun|null};
+}
+
 type BaseRow = {
   id:string; source_label:string; company:string; city:string; employee_name:string; cpf:string;
   bank:string; base_value:number|string; notes:string; employee_id:string|null; source:"ARQUIVO"|"MANUAL";

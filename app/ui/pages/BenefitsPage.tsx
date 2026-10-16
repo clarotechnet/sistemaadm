@@ -11,7 +11,8 @@ import { normalizeText } from "../../../src/utils/text";
 import { EmptyState, MetricCard, StatusBadge } from "../components/Common";
 import { useApp } from "../state/AppContext";
 import { BenefitVehiclesTab } from "./BenefitVehiclesTab";
-import { PlanComparison } from "./PlanComparison";
+import { PlanBenefitModule } from "./PlanBenefitModule";
+import { AggregationSyncNotice } from "../components/AggregationSyncNotice";
 
 type BenefitTool="aggregation"|"transport"|"health"|"dental";
 type AggregationTab="base"|"monthly"|"vehicles";
@@ -34,7 +35,7 @@ export function BenefitsPage({onImport}:{onImport?:()=>void}={}){
     </div>
     {tool==="aggregation"&&<AggregationModule/>}
     {tool==="transport"&&<section className="surface"><EmptyState icon={<Bus/>} title="Vale Transporte" description="A área foi separada do Agregamento e ficará disponível para configurarmos as regras específicas na próxima etapa."/></section>}
-    {isPlan&&<PlanComparison key={tool} kind={tool} onImport={onImport}/>}
+    {isPlan&&<PlanBenefitModule key={tool} kind={tool} onImport={onImport}/>}
   </div>;
 }
 
@@ -53,6 +54,7 @@ function AggregationModule(){
   const[city,setCity]=useState("TODAS");
   const[competence,setCompetence]=useState(new Date().toISOString().slice(0,7));
   const[editing,setEditing]=useState<BaseDraft|null>(null);
+  const[syncRevision,setSyncRevision]=useState(0);
 
   const reloadBase=async()=>{setLoading(true);try{setBase(await listAggregationBase())}catch(e){app.toast("error","Não foi possível carregar a base de Agregamento",e instanceof Error?e.message:undefined)}finally{setLoading(false)}};
   const reloadMonthly=async()=>{try{setMonthly(await listAggregationMonthly(competence))}catch(e){app.toast("error","Não foi possível carregar o fechamento mensal",e instanceof Error?e.message:undefined)}};
@@ -136,7 +138,7 @@ function AggregationModule(){
       if(warning)app.toast("warning","Agregamento atualizado com ressalvas",warning);
       else app.toast("success","Agregamento atualizado pelo QuarkRH",`${result.rows??0} colaborador(es) · faltas, atestados e férias atualizados.`);
     }catch(e){app.toast("error","Não foi possível consultar o QuarkRH",e instanceof Error?e.message:undefined)}
-    finally{setSyncing(false)}
+    finally{setSyncing(false);setSyncRevision(value=>value+1)}
   };
   const exportPayment=async()=>{
     setExporting(true);
@@ -156,6 +158,7 @@ function AggregationModule(){
       <button className={tab==="monthly"?"active":""} onClick={()=>setTab("monthly")}>Agregamentos mensal</button>
       <button className={tab==="vehicles"?"active":""} onClick={()=>setTab("vehicles")}>Veículos</button>
     </div>
+    {tab==="monthly"&&<AggregationSyncNotice competence={competence} refresh={syncRevision}/>}
     {tab==="vehicles"?<BenefitVehiclesTab base={base}/>:<>
     {tab==="base"?<div className="metrics-grid">
       <MetricCard label="AGREGADOS" value={base.length} detail="CPFs cadastrados"/>

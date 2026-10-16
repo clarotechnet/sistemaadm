@@ -81,15 +81,31 @@ test("health and dental comparisons live in Benefits after transport and reuse t
   const moduleTabs = benefits.match(/<div className="benefit-module-tabs">([\s\S]*?)<\/div>/)?.[1] ?? "";
   const moduleLabels = [...moduleTabs.matchAll(/<strong>([^<]+)<\/strong><small>/g)].map(match => match[1]);
   assert.deepEqual(moduleLabels, ["Agregamento", "Vale Transporte", "Plano de Saúde", "Plano Odontológico"]);
-  assert.match(benefits, /<PlanComparison key=\{tool\} kind=\{tool\}/);
+  assert.match(benefits, /<PlanBenefitModule key=\{tool\} kind=\{tool\}/);
   assert.match(benefits, /app\.selectCompetence\(event\.target\.value\)/);
-  assert.match(plan, /app\.health:app\.dental/);
-  assert.match(plan, /comparePlan\(app\.activePayroll,reference,kind,toleranceValue\)/);
-  assert.match(plan, /savePayrollComparison\(app\.activePayroll\.id,kind/);
-  assert.match(plan, /removePayrollComparison\(app\.activePayroll!\.id,kind\)/);
-  assert.match(plan, /exportComparisonExcel\(state\.rows/);
+  assert.match(plan, /app\.savedHealth:app\.savedDental/);
+  assert.match(plan, /comparePlanBase\(app\.activePayroll,baseVersions,kind,toleranceValue\)/);
+  assert.doesNotMatch(plan, /savePayrollComparison|Atualizar resultado salvo|Salvar conferência/);
+  assert.match(plan, /removePayrollComparison\(app\.activePayroll\.id,kind\)/);
+  assert.match(plan, /exportComparisonExcel\(result\.rows/);
+  assert.match(plan, /const result=useMemo/);
+  assert.match(plan, /latestPlanBase\(baseVersions/);
+  assert.doesNotMatch(plan, /planBaseAtMonth|Nenhum cadastro vigente/);
+  assert.match(plan, /Comparativo anterior \(histórico\)/);
+  assert.doesNotMatch(plan, /FileDropzone|parseReference|Iniciar comparativo|Refazer pela base/);
   assert.match(plan, /Dados da Folha → Importações/);
   assert.match(app, /<BenefitsPage onImport=\{onImport\}/);
+});
+
+test("shared plan data drives automatic results and dashboard without manually saving comparisons",async()=>{
+  const context=await readFile(new URL("../app/ui/state/AppContext.tsx",import.meta.url),"utf8");
+  assert.match(context,/listPlanBase\(kind\)/);
+  assert.match(context,/comparePlanBase\(payroll,versions,kind,tolerance\)/);
+  assert.match(context,/const health=useMemo\(\(\)=>automaticPlanState/);
+  assert.match(context,/const dental=useMemo\(\(\)=>automaticPlanState/);
+  assert.match(context,/window\.setInterval\(refresh,60000\)/);
+  assert.match(context,/addEventListener\("visibilitychange",refresh\)/);
+  assert.doesNotMatch(context,/savePayrollComparison|save_payroll_comparison/);
 });
 
 test("the shared header follows page scrolling without a nested scroll container", async () => {
