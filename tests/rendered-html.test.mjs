@@ -76,7 +76,9 @@ test("health and dental comparisons live in Benefits after transport and reuse t
     readFile(new URL("../app/ui/RHControlApp.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(payroll, /type Tab = "overview" \| "imports"/);
-  assert.match(payroll, /Importar Folha de Pagamento/);
+  const importer=await readFile(new URL("../app/ui/pages/PayrollImport.tsx",import.meta.url),"utf8");
+  assert.match(importer, /Importar Folha de Pagamento/);
+  assert.match(importer, /savePayrollSources/);
   assert.doesNotMatch(payroll, /<PlanComparison|id:"health"|id:"dental"/);
   const moduleTabs = benefits.match(/<div className="benefit-module-tabs">([\s\S]*?)<\/div>/)?.[1] ?? "";
   const moduleLabels = [...moduleTabs.matchAll(/<strong>([^<]+)<\/strong><small>/g)].map(match => match[1]);

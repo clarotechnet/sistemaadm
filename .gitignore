@@ -52,3 +52,4 @@ supabase/.temp/
 /tmp_*.mjs
 /verify_target_db.mjs
 /tmp/
+/public/pdfjs/

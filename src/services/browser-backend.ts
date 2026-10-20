@@ -1,7 +1,8 @@
-import type { ActivePayroll, AuditEntry, ComparisonRow, ComparisonStatus, FileRetentionMode, PayrollMonthOption, PayrollRecord, PlanComparisonState, RawFileUpload, Role, SystemSettings, UserProfile } from "../types";
+import type { ActivePayroll, AuditEntry, ComparisonRow, ComparisonStatus, FileRetentionMode, PayrollMonthOption, PayrollRecord, PayrollSource, PlanComparisonState, RawFileUpload, Role, SystemSettings, UserProfile } from "../types";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import { fixLegacyEncoding } from "../utils/text";
 import { normalizePayrollAuditEvents } from "../modules/payroll/audit-fields";
+import { consolidatePayrollRecords } from "../modules/payroll/sources";
 
 const isStaticHostinger = process.env.NEXT_PUBLIC_DEPLOY_TARGET === "static-hostinger";
 const bucket = "rh-private-files";
@@ -49,7 +50,8 @@ type RawFileRow = {
   storage_path?: string;
 };
 
-type PayrollRecordRow = { cpf:string; name:string; liquid:number|string; health_total:number|string; dental_total:number|string; health_columns:number; dental_columns:number; source_sheet:string; audit_data?:PayrollRecord["audit"]|null };
+type PayrollRecordRow = { cpf:string; name:string; liquid:number|string; health_total:number|string; dental_total:number|string; health_columns:number; dental_columns:number; source_sheet:string; source_id?:string; audit_data?:PayrollRecord["audit"]|null };
+type PayrollSourceRow = {id:string;label:string;file_name:string;file_size:number|string;record_count:number;updated_at:string;imported_by_name:string};
 type PayrollImportRow = { id:string; file_name:string; file_size:number|string; competence:string; updated_at:string; imported_by_name:string; logs:unknown; payroll_records?:PayrollRecordRow[] };
 type PayrollMonthRow = { id:string; file_name:string; competence:string; record_count:number; updated_at:string; imported_by_name:string };
 type ComparisonDetailRow = { cpf:string; name:string; payroll_value:number|string|null; reference_value:number|string|null; difference:number|string|null; liquid:number|string|null; column_count:number; status:ComparisonStatus };
@@ -166,14 +168,30 @@ export async function loadPayrollMonth(competence:string):Promise<ActivePayroll|
   const {data,error}=await supabase.from("payroll_imports").select("id,file_name,file_size,competence,updated_at,imported_by_name,logs").eq("competence",competence).maybeSingle();
   if(error)throw error;
   if(!data)return null;
+  const sources=await listPayrollSources(data.id);
   const records:PayrollRecordRow[]=[];
   for(let offset=0;;offset+=500){
-    const page=await supabase.from("payroll_records").select("cpf,name,liquid,health_total,dental_total,health_columns,dental_columns,source_sheet,audit_data").eq("payroll_import_id",data.id).order("cpf").range(offset,offset+499);
+    const columns="cpf,name,liquid,health_total,dental_total,health_columns,dental_columns,source_sheet,audit_data"+(sources===null?"":",source_id");
+    const page=await supabase.from("payroll_records").select(columns).eq("payroll_import_id",data.id).order("cpf").order("id").range(offset,offset+499).returns<PayrollRecordRow[]>();
     if(page.error)throw page.error;
     records.push(...(page.data??[]) as PayrollRecordRow[]);
     if((page.data?.length??0)<500)break;
   }
-  return payrollFromRow({...data,payroll_records:records} as PayrollImportRow);
+  const payroll=payrollFromRow({...data,payroll_records:records} as PayrollImportRow);
+  payroll.records=consolidatePayrollRecords(records.map(row=>{
+    const record=payrollRecordFromRow(row),source=sources?.find(item=>item.id===row.source_id);
+    if(source){record.sourceSheet=`${source.label} · ${record.sourceSheet}`;if(record.audit)record.audit={...record.audit,occurrences:record.audit.occurrences.map(item=>({...item,sheet:`${source.label} · ${item.sheet}`}))};}
+    return record;
+  }));
+  if(sources!==null)payroll.sources=sources;
+  return payroll;
+}
+
+export async function listPayrollSources(payrollImportId:string):Promise<PayrollSource[]|null>{
+  const {data,error}=await createSupabaseBrowserClient().from("payroll_sources").select("id,label,file_name,file_size,record_count,updated_at,imported_by_name").eq("payroll_import_id",payrollImportId).order("label");
+  // Existing competencies remain readable until the additive migration is installed.
+  if(error){if(["42P01","PGRST205"].includes(error.code))return null;throw error;}
+  return ((data??[]) as PayrollSourceRow[]).map(row=>({id:row.id,label:fixLegacyEncoding(row.label),fileName:fixLegacyEncoding(row.file_name),fileSize:Number(row.file_size),recordCount:Number(row.record_count),importedAt:row.updated_at,importedBy:fixLegacyEncoding(row.imported_by_name)}));
 }
 
 export async function loadActivePayroll():Promise<ActivePayroll|null>{
@@ -181,14 +199,21 @@ export async function loadActivePayroll():Promise<ActivePayroll|null>{
   return months[0]?loadPayrollMonth(months[0].competence):null;
 }
 
-export async function savePayrollMonth(payroll:ActivePayroll):Promise<{payroll:ActivePayroll;updated:boolean}>{
+export interface PayrollSourceInput {payroll:ActivePayroll;label:string;fileHash:string;sourceId?:string;expectedUpdatedAt?:string}
+export async function savePayrollSources(competence:string,sources:PayrollSourceInput[]):Promise<{payroll:ActivePayroll;added:number;updated:number}>{
   const supabase=createSupabaseBrowserClient();
-  const records=payroll.records.map(record=>({cpf:record.cpf,name:record.name,liquid:record.liquid,health_total:record.healthTotal,dental_total:record.dentalTotal,health_columns:record.healthColumns,dental_columns:record.dentalColumns,source_sheet:record.sourceSheet,audit_data:record.audit??null}));
-  const {data,error}=await supabase.rpc("save_payroll_month",{p_competence:payroll.competence,p_file_name:payroll.fileName,p_file_size:payroll.fileSize,p_logs:payroll.logs,p_records:records});
-  if(error)throw error;
-  const saved=await loadPayrollMonth(payroll.competence);
+  if(!sources.length||sources.some(source=>source.payroll.competence!==competence))throw new Error("Todas as folhas devem pertencer à competência selecionada.");
+  const payload=sources.map(source=>({source_id:source.sourceId??null,expected_updated_at:source.expectedUpdatedAt??null,label:source.label.trim(),file_hash:source.fileHash,file_name:source.payroll.fileName,file_size:source.payroll.fileSize,logs:source.payroll.logs,records:source.payroll.records.map(record=>({cpf:record.cpf,name:record.name,liquid:record.liquid,health_total:record.healthTotal,dental_total:record.dentalTotal,health_columns:record.healthColumns,dental_columns:record.dentalColumns,source_sheet:record.sourceSheet,audit_data:record.audit??null}))}));
+  const {data,error}=await supabase.rpc("save_payroll_sources",{p_competence:competence,p_sources:payload});
+  if(error){if(["PGRST202","42883"].includes(error.code))throw new Error("Atualização do banco necessária para importar várias folhas. A importação foi bloqueada para não substituir os dados existentes.");throw new Error(error.message);}
+  const saved=await loadPayrollMonth(competence);
   if(!saved)throw new Error("A folha foi gravada, mas não pôde ser recarregada.");
-  return {payroll:saved,updated:Boolean((data as {updated?:boolean}|null)?.updated)};
+  const result=data as {added:number;updated:number};
+  return {payroll:saved,added:Number(result.added),updated:Number(result.updated)};
+}
+export async function removePayrollSource(source:PayrollSource):Promise<void>{
+  const {error}=await createSupabaseBrowserClient().rpc("admin_delete_payroll_source",{p_source_id:source.id,p_expected_updated_at:source.importedAt});
+  if(error)throw new Error(error.message);
 }
 export async function removePayrollMonth(competence:string):Promise<void>{
   const supabase=createSupabaseBrowserClient();

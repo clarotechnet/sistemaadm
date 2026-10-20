@@ -1,0 +1,72 @@
+// Isolated PostgreSQL integration. Never reads .env or connects to Supabase.
+import assert from "node:assert/strict";
+import {readFile,readdir} from "node:fs/promises";
+import postgres from "postgres";
+
+const url=new URL(process.env.PAYROLL_QA_DATABASE_URL??"postgres://postgres@127.0.0.1:55438/postgres");
+assert.ok(["localhost","127.0.0.1"].includes(url.hostname)&&url.port==="55438","Only the dedicated local QA cluster is allowed");
+const db=postgres(url.href,{max:1,onnotice:()=>{}}),rollback=new Error("ROLLBACK_QA");
+const admin="11111111-1111-4111-8111-111111111111",rh="22222222-2222-4222-8222-222222222222",viewer="33333333-3333-4333-8333-333333333333";
+const record=(cpf,liquid=100,health=10,dental=2)=>({cpf,name:`Pessoa teste ${cpf}`,liquid,health_total:health,dental_total:dental,health_columns:1,dental_columns:1,source_sheet:"Folha",audit_data:{version:1,baseSalary:null,gross:liquid+health+dental,deductions:health+dental,liquid,company:"Teste",unit:"Natal",events:[],occurrences:[{sheet:"Folha",row:2}],invalidFields:[]}});
+const source=(label,hash,records=[record("00000000001")],extra={})=>({label,file_name:`${label}.xlsx`,file_size:123,file_hash:hash.repeat(64),records,logs:["Importada"],...extra});
+const passed=[];
+try{
+  await db.begin(async sql=>{
+    await sql.unsafe(`create role anon;create role authenticated;create schema auth;
+      create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+      grant usage on schema auth to authenticated,anon;
+      create table public.profiles(id uuid primary key,full_name text,status text,role text);
+      create function public.is_rh_or_admin() returns boolean language sql security definer set search_path='' as $$select exists(select 1 from public.profiles where id=auth.uid() and status='ATIVO' and role in ('RH','ADMINISTRADOR'))$$;
+      create function public.is_admin() returns boolean language sql security definer set search_path='' as $$select exists(select 1 from public.profiles where id=auth.uid() and status='ATIVO' and role='ADMINISTRADOR')$$;
+      create table public.payroll_imports(id uuid primary key default gen_random_uuid(),user_id uuid,file_name text not null,competence text not null,record_count integer not null default 0,status text,created_at timestamptz default now());
+      alter table public.payroll_imports enable row level security;
+      create table public.payroll_comparisons(id uuid primary key default gen_random_uuid(),payroll_import_id uuid references public.payroll_imports on delete cascade);`);
+    for(const [id,name,role] of [[admin,"Admin QA","ADMINISTRADOR"],[rh,"RH QA","RH"],[viewer,"Consulta QA","CONSULTA"]])await sql`insert into public.profiles values(${id},${name},'ATIVO',${role})`;
+    await sql.unsafe(await readFile("supabase/migrations/20260916102000_payroll_persistence.sql","utf8"));
+    await sql.unsafe("alter table public.payroll_records add column audit_data jsonb");
+    // Seed the deployed one-file format before applying the additive migration.
+    const [legacy]=await sql`insert into public.payroll_imports(user_id,file_name,competence,record_count,status,file_size,imported_by_name) values(${admin},'DMV Natal.xlsx','10/2026',1,'ATIVO',123,'Admin QA') returning id`;
+    await sql`insert into public.payroll_records(payroll_import_id,cpf,name,liquid,health_total,dental_total,audit_data) values(${legacy.id},'00000000001','Pessoa teste',100,10,2,${JSON.stringify(record("00000000001").audit_data)}::text::jsonb)`;
+    const filename=(await readdir("supabase/migrations")).find(name=>name.endsWith("_payroll_multiple_sources.sql"));assert.ok(filename);
+    await sql.unsafe(await readFile(`supabase/migrations/${filename}`,"utf8"));
+    const [backfill]=await sql`select (select count(*)::int from public.payroll_sources) sources,(select count(*)::int from public.payroll_records where source_id is not null) records`;
+    assert.deepEqual(backfill,{sources:1,records:1});passed.push("legacy backfill preserves month id and all records");
+    await sql.unsafe("set local role authenticated");await sql`select set_config('request.jwt.claim.sub',${rh},true)`;
+    const save=async(month,sources)=>(await sql`select public.save_payroll_sources(${month},${JSON.stringify(sources)}::text::jsonb) result`)[0].result;
+    const checkpoint=async(name,operation,pattern)=>{await sql.unsafe(`savepoint ${name}`);await assert.rejects(operation,pattern);await sql.unsafe(`rollback to savepoint ${name}`);};
+    const first=await save("10/2026",[source("VNA","a",[record("00000000002",200)]),source("RDT","b",[record("00000000003",300)])]);
+    assert.equal(first.id,legacy.id);assert.equal(first.added,2);assert.equal(first.record_count,3);
+    let rows=await sql`select label,id,updated_at::text from public.payroll_sources order by label`;assert.equal(rows.length,3);passed.push("DMV + VNA + RDT coexist in one month");
+    await checkpoint("duplicate_file",()=>save("10/2026",[source("Renomeada","a")]),/já foi importado/);
+    await checkpoint("duplicate_label",()=>save("10/2026",[source("  vna  ","c")]),/Já existe uma folha/);
+    const vna=rows.find(row=>row.label==="VNA"),rdt=rows.find(row=>row.label==="RDT");
+    await save("10/2026",[source("VNA","c",[record("00000000002",250)],{source_id:vna.id,expected_updated_at:vna.updated_at})]);
+    let [total]=await sql`select sum(liquid)::int value,count(*)::int records from public.payroll_records where payroll_import_id=${legacy.id}`;
+    assert.deepEqual(total,{value:650,records:3});passed.push("explicit replacement changes only VNA and prevents double counting");
+    await checkpoint("stale_update",()=>save("10/2026",[source("VNA","d",[record("00000000002")],{source_id:vna.id,expected_updated_at:vna.updated_at})]),/alterada por outra pessoa/);
+    await checkpoint("atomic_batch",()=>save("10/2026",[source("Nova válida","d"),source("Nova inválida","e",[{...record("00000000004"),cpf:"inválido"}])]),/inválido/);
+    assert.equal((await sql`select count(*)::int count from public.payroll_sources`)[0].count,3);passed.push("duplicate, stale update and invalid batch roll back without partial imports");
+    await checkpoint("wrong_month",()=>save("09/2026",[source("VNA","e",[record("00000000004")],{source_id:vna.id,expected_updated_at:vna.updated_at})]),/não pertence/);
+    assert.equal((await sql`select count(*)::int count from public.payroll_imports`)[0].count,1);
+    await save("10/2026",[source("Complementar","d",[record("00000000001",50,5,1)])]);
+    const [shared]=await sql`select count(*)::int sources,sum(liquid)::int liquid,sum(health_total)::int health from public.payroll_records where payroll_import_id=${legacy.id} and cpf='00000000001'`;
+    assert.deepEqual(shared,{sources:2,liquid:150,health:15});assert.equal((await sql`select record_count from public.payroll_imports where id=${legacy.id}`)[0].record_count,3);passed.push("shared CPF keeps both origins and unique month count");
+    await checkpoint("rh_delete",()=>sql`select public.admin_delete_payroll_source(${rdt.id},${rdt.updated_at}::text::timestamptz)`,/Acesso negado/);
+    await checkpoint("direct_write",()=>sql`delete from public.payroll_sources where id=${rdt.id}`,/permission denied/);
+    await checkpoint("old_rpc",()=>sql`select public.save_payroll_month('10/2026','antiga.xlsx',1,'[]','[]')`,/Importador antigo/);
+    await sql`select set_config('request.jwt.claim.sub',${viewer},true)`;
+    assert.equal((await sql`select count(*)::int count from public.payroll_sources`)[0].count,0);
+    assert.equal((await sql`select count(*)::int count from public.payroll_records`)[0].count,0);
+    await checkpoint("viewer_write",()=>save("10/2026",[source("Bloqueada","e")]),/Acesso negado/);
+    await sql`select set_config('request.jwt.claim.sub',${admin},true)`;
+    await sql`select public.admin_delete_payroll_source(${rdt.id},${rdt.updated_at}::text::timestamptz)`;
+    assert.equal((await sql`select count(*)::int count from public.payroll_sources`)[0].count,3);
+    assert.equal((await sql`select count(*)::int count from public.payroll_records where cpf='00000000003'`)[0].count,0);passed.push("RLS, roles, protected writes and source-only removal");
+    await sql.unsafe("reset role");
+    assert.equal((await sql`select has_table_privilege('anon','public.payroll_sources','SELECT') allowed`)[0].allowed,false);
+    assert.equal((await sql`select has_function_privilege('anon','public.save_payroll_sources(text,jsonb)','EXECUTE') allowed`)[0].allowed,false);
+    assert.equal((await sql`select count(*)::int count from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('save_payroll_sources','admin_delete_payroll_source','save_payroll_month') and p.prosecdef`)[0].count,0);
+    console.log(JSON.stringify({passed,transaction:"All synthetic data and schema are rolled back",database:"isolated localhost:55438"},null,2));
+    throw rollback;
+  });
+}catch(error){if(error!==rollback)throw error;}finally{await db.end({timeout:2});}

@@ -2,6 +2,7 @@ import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import { payrollRecordFromRow } from "./browser-backend";
 import type { ActivePayroll, Employee, PayrollRecord, UserProfile } from "../types";
 import { comparisonCompetences, competenceDates, competenceIndex, type AuditReview, type AuditRules, type VacationEvidence } from "../modules/payroll/audit";
+import { consolidatePayrollRecords } from "../modules/payroll/sources";
 
 export interface AuditContext { currentImportId: string; previousCompetence: string; revisionKey: string }
 export async function auditContext(current: ActivePayroll, previous: ActivePayroll | null, rules: AuditRules, employees: Employee[] = [], history: ActivePayroll[] = []): Promise<AuditContext> {
@@ -61,12 +62,14 @@ export async function saveAuditReview(context: AuditContext, user: UserProfile, 
 export interface AuditHistoryMonth { competence: string; record: PayrollRecord }
 export async function loadEmployeePayrollHistory(cpf: string, currentCompetence: string, months = 3): Promise<AuditHistoryMonth[]> {
   const supabase = createSupabaseBrowserClient();
-  // One bounded query for this employee, not one request per month or employee.
+  // Each month may have many company/unit sources; do not truncate by month count.
   const competences = [currentCompetence, ...comparisonCompetences(currentCompetence, months)];
-  const { data, error } = await supabase.from("payroll_records").select("cpf,name,liquid,health_total,dental_total,health_columns,dental_columns,source_sheet,audit_data,payroll_imports!inner(competence)").eq("cpf", cpf).in("payroll_imports.competence", competences).limit(competences.length);
-  if (error) throw error;
-  return (data ?? []).flatMap(row => {
-    const parent = row.payroll_imports as unknown as { competence: string };
-    return competences.includes(parent.competence) ? [{ competence: parent.competence, record: payrollRecordFromRow(row) }] : [];
-  }).sort((a, b) => competenceIndex(b.competence) - competenceIndex(a.competence));
+  const byMonth = new Map<string, PayrollRecord[]>();
+  for(let offset=0;;offset+=500){
+    const {data,error}=await supabase.from("payroll_records").select("cpf,name,liquid,health_total,dental_total,health_columns,dental_columns,source_sheet,audit_data,payroll_imports!inner(competence)").eq("cpf",cpf).in("payroll_imports.competence",competences).order("id").range(offset,offset+499);
+    if(error)throw error;
+    for(const row of data??[]){const parent=row.payroll_imports as unknown as {competence:string};if(competences.includes(parent.competence))byMonth.set(parent.competence,[...(byMonth.get(parent.competence)??[]),payrollRecordFromRow(row)]);}
+    if((data?.length??0)<500)break;
+  }
+  return [...byMonth].flatMap(([competence,records])=>consolidatePayrollRecords(records).map(record=>({competence,record}))).sort((a,b)=>competenceIndex(b.competence)-competenceIndex(a.competence));
 }

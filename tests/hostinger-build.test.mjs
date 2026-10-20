@@ -10,6 +10,9 @@ test("Hostinger build is a static SPA with an Apache entry point", async () => {
   assert.match(html, /\/assets\//);
   await access(new URL(".htaccess", output));
   await access(new URL("pdf.worker.min.js", output));
+  await access(new URL("pdfjs/standard_fonts/LiberationSans-Regular.ttf", output));
+  await access(new URL("pdfjs/cmaps/Adobe-Japan1-UCS2.bcmap", output));
+  await access(new URL("pdfjs/wasm/openjpeg.wasm", output));
 });
 
 test("Hostinger output does not contain Vinext server directories", async () => {

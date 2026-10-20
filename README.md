@@ -96,3 +96,15 @@ node scripts/verify-payroll-audit-db.mjs --project=SEU_PROJECT_REF
 ```
 
 O segundo comando verifica importação, RLS e justificativas com dados fictícios dentro de uma transação que sempre é revertida. Não executá-lo contra outro produto.
+
+## Importação de várias folhas
+
+Dados da Folha aceita vários arquivos de empresas/unidades na mesma competência, com seletores de mês e ano. Novas folhas são acrescentadas; substituir uma exige selecionar explicitamente a origem. Líquido e descontos são consolidados por CPF em todas as conferências. Veja [uso, migração e validação](docs/payroll-multiple-sources.md).
+
+## Central de ferramentas PDF
+
+A central inclui PDF para Word e Word para PDF (`.docx`), além de edição, compactação, união, separação, organização, imagens, comparação e horas extras. As conversões são locais no navegador, sem API de conversão externa; a política de retenção do original continua visível no upload.
+
+PDF para Word oferece texto editável com layout simplificado ou páginas como imagens. Não inclui OCR. Word para PDF preserva conteúdo básico, mas documentos com formatação avançada exigem revisão. Os limites e os casos verificados estão em [Validação da central PDF](docs/pdf-tools-validation.md).
+
+`npm run prepare:pdf` prepara worker, fontes e decodificadores PDF.js na mesma origem e é executado automaticamente antes do desenvolvimento e dos builds. Para validar, use `npm test`, `npm run test:hostinger` e o roteiro de navegador documentado no relatório.

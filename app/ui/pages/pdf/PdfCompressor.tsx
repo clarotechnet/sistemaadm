@@ -141,18 +141,18 @@ export function PdfCompressor() {
   return <>
     <div className="page-heading compact"><div><h2>Compactar PDFs</h2><p>Reduza vários documentos ou crie um ZIP menor. O processamento acontece no navegador; a retenção do original segue a política exibida abaixo.</p></div><span className="privacy-pill">Processamento local · LGPD</span></div>
     <div className="mode-tabs compressor-mode-tabs">
-      <button className={mode === "compress" ? "active" : ""} onClick={() => setMode("compress")}><FileDown /> Diminuir PDFs</button>
-      <button className={mode === "zip" ? "active" : ""} onClick={() => setMode("zip")}><FileArchive /> Criar ZIP menor</button>
+      <button disabled={busy} className={mode === "compress" ? "active" : ""} onClick={() => setMode("compress")}><FileDown /> Diminuir PDFs</button>
+      <button disabled={busy} className={mode === "zip" ? "active" : ""} onClick={() => setMode("zip")}><FileArchive /> Criar ZIP menor</button>
     </div>
     <section className="surface import-surface compressor-surface">
       <div className="compressor-grid">
         <div>
-          <FileDropzone accept=".pdf" multiple files={files} onFiles={updateFiles} label="Arraste vários PDFs para cá" hint="ou clique para selecionar os documentos" />
+          <FileDropzone accept=".pdf" multiple disabled={busy} files={files} onFiles={updateFiles} label="Arraste vários PDFs para cá" hint="ou clique para selecionar os documentos" />
         </div>
         <aside className="compressor-settings">
           <div><Gauge /><span><strong>Perfil de redução</strong><small>{pdfCompressionPresets[preset].description}</small></span></div>
-          <label className="field"><span>Qualidade</span><select value={preset} disabled={busy} onChange={event => { setPreset(event.target.value as PdfCompressionPresetId); setResults([]); }}><option value="readable">Forte legível · recomendado</option><option value="balanced">Equilibrado · mais nítido</option><option value="quality">Alta qualidade · arquivo maior</option><option value="extreme">Extremo · menor tamanho</option></select></label>
-          <div className="compressor-check"><input id="pdf-compressor-grayscale" aria-label="Converter para tons de cinza" type="checkbox" checked={grayscale} disabled={busy} onChange={event => { setGrayscale(event.target.checked); setResults([]); }} /><label htmlFor="pdf-compressor-grayscale"><strong>Converter para tons de cinza</strong><small>Pode reduzir ainda mais documentos coloridos.</small></label></div>
+          <label className="field"><span>Qualidade</span><select value={preset} disabled={busy} onChange={event => { setPreset(event.target.value as PdfCompressionPresetId); setResults([]); setProgress({percent:0,text:""}); }}><option value="readable">Forte legível · recomendado</option><option value="balanced">Equilibrado · mais nítido</option><option value="quality">Alta qualidade · arquivo maior</option><option value="extreme">Extremo · menor tamanho</option></select></label>
+          <div className="compressor-check"><input id="pdf-compressor-grayscale" aria-label="Converter para tons de cinza" type="checkbox" checked={grayscale} disabled={busy} onChange={event => { setGrayscale(event.target.checked); setResults([]); setProgress({percent:0,text:""}); }} /><label htmlFor="pdf-compressor-grayscale"><strong>Converter para tons de cinza</strong><small>Pode reduzir ainda mais documentos coloridos.</small></label></div>
           {mode === "zip" && <label className="field"><span>Nome do ZIP</span><input value={zipName} disabled={busy} onChange={event => setZipName(event.target.value)} /></label>}
           <div className="compressor-warning"><strong>Atenção</strong><span>A compactação recria as páginas como imagens. Não use em PDFs assinados digitalmente, formulários editáveis ou quando precisar pesquisar/copiar o texto.</span></div>
           <div className="form-actions compressor-actions"><button className="button secondary" disabled={!files.length || busy} onClick={clear}><Eraser /> Limpar</button><button className="button primary" disabled={!files.length || busy} onClick={() => void run()}>{mode === "zip" ? <Archive /> : <PackageCheck />}{busy ? "Processando..." : mode === "zip" ? "Reduzir e criar ZIP" : "Compactar todos"}</button></div>

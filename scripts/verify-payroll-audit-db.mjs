@@ -12,7 +12,8 @@ const db = postgres(process.env.DATABASE_URL, { max: 1, connect_timeout: 15 });
 const rollback = new Error("ROLLBACK_VERIFIED_FIXTURES");
 try {
   await db.begin(async sql => {
-    if (process.argv.includes("--dry-run")) {
+    const [format]=await sql.unsafe("select to_regprocedure('public.save_payroll_sources(text,jsonb)') is not null multi, to_regclass('public.payroll_audit_reviews') is not null reviews");
+    if (process.argv.includes("--dry-run")&&!format.reviews) {
       const migration = (await readdir("supabase/migrations")).find(name => name.endsWith("_payroll_audit_module.sql"));
       await sql.unsafe(await readFile(`supabase/migrations/${migration}`, "utf8"));
     }
@@ -23,7 +24,8 @@ try {
     await sql.unsafe("set local role authenticated");
     await sql.unsafe("select set_config('request.jwt.claim.sub',$1,true)", [actor.id]);
     const payload = [{ cpf: "00000000000", name: "Teste transacional Conferência", liquid: 100, health_total: 5, dental_total: 2, health_columns: 1, dental_columns: 1, source_sheet: "Teste", audit_data: { version: 1, gross: 130, deductions: 30, liquid: 100, baseSalary: 100, events: [], occurrences: [{ sheet: "Teste", row: 2 }] } }];
-    const [saved] = await sql.unsafe("select public.save_payroll_month('01/1901','teste.xlsx',1,'[]'::jsonb,$1::text::jsonb) as result", [JSON.stringify(payload)]);
+    const save=()=>format.multi?sql.unsafe("select public.save_payroll_sources('01/1901',$1::text::jsonb) as result",[JSON.stringify([{label:"Teste transacional",file_name:"teste.xlsx",file_size:1,file_hash:"a".repeat(64),logs:[],records:payload}])]):sql.unsafe("select public.save_payroll_month('01/1901','teste.xlsx',1,'[]'::jsonb,$1::text::jsonb) as result",[JSON.stringify(payload)]);
+    const [saved] = await save();
     const id = saved.result.id;
     const [record] = await sql.unsafe("select liquid,health_total,audit_data from public.payroll_records where payroll_import_id=$1", [id]);
     assert.equal(record.liquid, 100); assert.equal(record.health_total, 5); assert.equal(record.audit_data.gross, 130);
@@ -40,7 +42,7 @@ try {
     await assert.rejects(sql.unsafe("insert into public.payroll_audit_reviews(current_import_id,revision_key,employee_key,rule_code) values($1,$2,'00000000000','BLOCKED')", [id, "a".repeat(64)]));
     await sql.unsafe("rollback to savepoint blocked_write");
     await sql.unsafe("savepoint blocked_rpc");
-    await assert.rejects(sql.unsafe("select public.save_payroll_month('01/1901','teste.xlsx',1,'[]'::jsonb,$1::text::jsonb)", [JSON.stringify(payload)]));
+    await assert.rejects(save());
     await sql.unsafe("rollback to savepoint blocked_rpc");
     await sql.unsafe("reset role");
     const [security] = await sql.unsafe("select relrowsecurity from pg_class where oid='public.payroll_audit_reviews'::regclass");

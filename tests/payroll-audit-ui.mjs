@@ -110,7 +110,7 @@ try {
   assert.equal(await dialog.locator(".audit-liquid-history tbody tr").count(), 3);
   assert.deepEqual(await dialog.locator(".audit-liquid-history tbody tr td:first-child").allTextContents(), ["09/2026", "08/2026", "07/2026"]);
   await dialog.getByText("Composição das folhas disponíveis", { exact: true }).waitFor();
-  assert.equal(historyRequests.at(-1).limit, "4");
+  assert.equal(historyRequests.at(-1).limit, "500");
   assert.ok(!historyRequests.at(-1).competences.includes("06/2026"));
   const notesInput = dialog.getByRole("textbox", { name: "Observação / justificativa", exact: true }).first();
   const lightStyle = await notesInput.evaluate(input => { const style = getComputedStyle(input); return { border: style.borderTopWidth, height: input.clientHeight, background: style.backgroundColor, color: style.color }; });
@@ -167,7 +167,7 @@ try {
   await page.getByRole("dialog").getByText("Comparativo do líquido · até 1 mês anterior", { exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog").locator(".audit-liquid-history tbody tr").count(), 1);
   await page.getByRole("dialog").getByText("Composição das folhas disponíveis", { exact: true }).waitFor();
-  assert.equal(historyRequests.at(-1).limit, "2");
+  assert.equal(historyRequests.at(-1).limit, "500");
   assert.ok(!historyRequests.at(-1).competences.includes("08/2026"));
   await page.getByRole("button", { name: "Fechar conferência" }).click();
   await page.getByRole("combobox", { name: "Meses anteriores para comparar", exact: true }).selectOption("3");

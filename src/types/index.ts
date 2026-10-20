@@ -239,6 +239,18 @@ export interface ActivePayroll {
   importedBy: string;
   records: PayrollRecord[];
   logs: string[];
+  // One month remains the shared anchor; each imported company/unit is a source.
+  sources?: PayrollSource[];
+}
+
+export interface PayrollSource {
+  id: string;
+  label: string;
+  fileName: string;
+  fileSize: number;
+  recordCount: number;
+  importedAt: string;
+  importedBy: string;
 }
 
 export interface PayrollMonthOption {

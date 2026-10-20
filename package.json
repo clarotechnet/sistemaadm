@@ -10,21 +10,31 @@
     "build": "vinext build",
     "build:hostinger": "vite build --config vite.hostinger.config.ts",
     "start": "vinext start",
-    "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/security-hardening.test.mjs tests/production-config.test.mjs tests/core.test.ts tests/quark-employee-dates.test.ts tests/quark-employee-registration.test.ts tests/benefit-unique-event-days.test.mjs tests/benefit-plan-base.test.ts tests/employee-movements.test.ts tests/document-bulk-matching.test.ts tests/payroll-audit.test.ts",
+    "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/security-hardening.test.mjs tests/production-config.test.mjs tests/core.test.ts tests/pdf-tools.test.ts tests/payroll-sources.test.ts tests/quark-employee-dates.test.ts tests/quark-employee-registration.test.ts tests/benefit-unique-event-days.test.mjs tests/benefit-plan-base.test.ts tests/employee-movements.test.ts tests/document-bulk-matching.test.ts tests/payroll-audit.test.ts",
     "test:hostinger": "npm run build:hostinger && node --test tests/hostinger-build.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "prepare:pdf": "node scripts/prepare-pdf-assets.mjs",
+    "predev": "npm run prepare:pdf",
+    "prebuild": "npm run prepare:pdf",
+    "prebuild:hostinger": "npm run prepare:pdf",
+    "test:pdf-ui": "node tests/pdf-tools-ui.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.114.0",
+    "docx": "9.13.0",
+    "dompurify": "3.4.17",
     "dotenv": "^17.4.2",
     "drizzle-orm": "0.45.2",
+    "html-to-pdfmake": "2.5.36",
     "jszip": "^3.10.1",
     "lucide-react": "^1.38.0",
+    "mammoth": "1.13.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.3.289",
+    "pdfmake": "0.3.12",
     "postgres": "^3.4.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -57,5 +67,10 @@
     "vite": "^8.2.2",
     "wrangler": "^4.130.0"
   },
-  "type": "module"
+  "type": "module",
+  "overrides": {
+    "mammoth": {
+      "argparse": "2.0.1"
+    }
+  }
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bold, Download, Eraser, FileDown, MousePointer2, Paintbrush, Redo2, RectangleHorizontal, RotateCcw, Trash2, Type, Undo2, X, ZoomIn, ZoomOut } from "lucide-react";
-import { downloadEditedPdfs, extractPdfTextItems, loadPdfJs, samplePdfTextColor, type PdfFontFamily, type PdfOverlay, type PdfTextItem } from "../../../../src/services/pdf";
+import { downloadEditedPdfs, extractPdfTextItems, loadPdfJs, pdfDocumentOptions, samplePdfTextColor, type PdfFontFamily, type PdfOverlay, type PdfTextItem } from "../../../../src/services/pdf";
 import { FileDropzone } from "../../components/FileDropzone";
 import { PdfCanvas } from "../../components/PdfCanvas";
 import { useApp } from "../../state/AppContext";
@@ -38,8 +38,8 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
     for(const file of files){
       try{
         const pdfjs=await loadPdfJs();
-        const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
-        created.push({id:crypto.randomUUID(),file,pageCount:pdf.numPages,page:0,past:[],present:[],future:[]});
+        const task=pdfjs.getDocument(pdfDocumentOptions(await file.arrayBuffer()));
+        try{const pdf=await task.promise;created.push({id:crypto.randomUUID(),file,pageCount:pdf.numPages,page:0,past:[],present:[],future:[]});}finally{await task.destroy();}
       }catch(error){app.toast("error",`Não foi possível abrir ${file.name}`,error instanceof Error?error.message:undefined)}
     }
     setDocs(current=>[...current,...created]);
@@ -57,6 +57,7 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
 
   useEffect(()=>{
     const key=(event:KeyboardEvent)=>{
+      if(event.target instanceof HTMLElement&&(event.target.matches("input,textarea,select")||event.target.isContentEditable))return;
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z"){event.preventDefault();undo()}
       else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="y"){event.preventDefault();redo()}
       else if(event.key==="Delete")removeSelected();
@@ -83,19 +84,22 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
   },[tool,active]);
 
   const pointer=(event:React.PointerEvent<HTMLDivElement>)=>{
+    if(event.type==="pointercancel"){dragStart.current=null;return;}
     if(!active||!stage.current||tool==="select"||tool==="editText"||tool==="copyFormat")return;
     const rect=stage.current.getBoundingClientRect();
-    const point={x:(event.clientX-rect.left)/rect.width,y:(event.clientY-rect.top)/rect.height};
+    const point={x:Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),y:Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))};
     if(event.type==="pointerdown"){
+      if(event.button!==0)return;
       if(tool==="text"){
-        const overlay:PdfOverlay={id:crypto.randomUUID(),page:active.page,type:"text",x:point.x,y:point.y,width:.25,height:.055,text,fontSize,fontFamily,color,bold,coverBackground:false};
+        const overlay:PdfOverlay={id:crypto.randomUUID(),page:active.page,type:"text",x:point.x,y:point.y,width:Math.min(.25,1-point.x),height:Math.min(.055,1-point.y),text,fontSize,fontFamily,color,bold,coverBackground:false};
         commit([...active.present,overlay]);
         setSelected(overlay.id);
         setTool("select");
-      }else dragStart.current=point;
+      }else{event.preventDefault();stage.current.setPointerCapture(event.pointerId);dragStart.current=point;}
     }else if(event.type==="pointerup"&&dragStart.current){
       const start=dragStart.current;
       dragStart.current=null;
+      if(stage.current.hasPointerCapture(event.pointerId))stage.current.releasePointerCapture(event.pointerId);
       const overlay:PdfOverlay={id:crypto.randomUUID(),page:active.page,type:tool==="erase"?"erase":"rect",x:Math.min(start.x,point.x),y:Math.min(start.y,point.y),width:Math.abs(point.x-start.x),height:Math.abs(point.y-start.y),color};
       if(overlay.width>.005&&overlay.height>.005)commit([...active.present,overlay]);
     }
@@ -209,8 +213,8 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
         <select value={currentFontFamily} onChange={event=>{const value=event.target.value as PdfFontFamily;setFontFamily(value);if(selectedOverlay?.type==="text")updateSelected({fontFamily:value})}} aria-label="Fonte"><option value="Helvetica">Helvetica</option><option value="TimesRoman">Times</option><option value="Courier">Courier</option></select>
         <input type="color" value={selectedOverlay?.type==="text"?selectedOverlay.color??color:color} onChange={event=>{setColor(event.target.value);if(selectedOverlay?.type==="text")updateSelected({color:event.target.value})}} aria-label="Cor"/>
         <button className={(selectedOverlay?.type==="text"?selectedOverlay.bold:bold)?"active":""} onClick={()=>{const value=!(selectedOverlay?.type==="text"?selectedOverlay.bold:bold);setBold(value);if(selectedOverlay?.type==="text")updateSelected({bold:value})}}><Bold/></button>
-        <button disabled={!active?.past.length} onClick={undo}><Undo2/></button>
-        <button disabled={!active?.future.length} onClick={redo}><Redo2/></button>
+        <button aria-label="Desfazer" disabled={!active?.past.length} onClick={undo}><Undo2/></button>
+        <button aria-label="Refazer" disabled={!active?.future.length} onClick={redo}><Redo2/></button>
         <button disabled={!selected} onClick={removeSelected}><Trash2/></button>
       </div>
       <div className="zoom-controls"><button onClick={()=>setZoom(value=>Math.max(40,value-10))}><ZoomOut/></button><span>{zoom}%</span><button onClick={()=>setZoom(value=>Math.min(150,value+10))}><ZoomIn/></button></div>
@@ -223,8 +227,9 @@ export function PdfEditor({onClose}:{onClose:()=>void}) {
         <div className="editor-page-list">{active&&Array.from({length:active.pageCount},(_,index)=><button className={active.page===index?"active":""} key={index} onClick={()=>updateDoc(doc=>({...doc,page:index}))}><div><PdfCanvas file={active.file} pageNumber={index+1} scale={.13}/>{active.present.some(item=>item.page===index)&&<i/>}</div><span>Página {index+1}</span></button>)}</div>
       </aside>
       <section className="editor-workspace">
+        <p className="conversion-notice">Editar pode invalidar assinaturas digitais. Ao apagar áreas ou substituir texto original, a página alterada é recriada como imagem para não deixar o texto antigo oculto abaixo da edição; essa página deixa de ter texto selecionável. O original não é sobrescrito.</p>
         {textHint&&<div className={`edit-text-hint ${textScanState}`}>{textHint}</div>}
-        <div className={`pdf-stage tool-${tool}`} ref={stage} style={{width:`${zoom}%`}} onPointerDown={pointer} onPointerUp={pointer}>
+        <div className={`pdf-stage tool-${tool}`} ref={stage} style={{width:`${zoom}%`}} onPointerDown={pointer} onPointerUp={pointer} onPointerCancel={pointer}>
           {active&&<PdfCanvas file={active.file} pageNumber={active.page+1} scale={1.35*(zoom/100)} className="main-pdf-canvas"/>}
           <div className="overlay-layer">{currentOverlays.map(overlay=><button key={overlay.id} className={`pdf-overlay ${overlay.type} ${selected===overlay.id?"selected":""}`} style={{left:`${overlay.x*100}%`,top:`${overlay.y*100}%`,width:`${overlay.width*100}%`,height:`${overlay.height*100}%`,borderColor:overlay.color,color:overlay.color,fontSize:`${overlay.fontSize??12}px`,fontWeight:overlay.bold?700:400,fontFamily:overlay.fontFamily==="TimesRoman"?"Times New Roman, serif":overlay.fontFamily==="Courier"?"Courier New, monospace":"Arial, Helvetica, sans-serif"}} onPointerDown={event=>{if(tool==="select"){event.stopPropagation();setSelected(overlay.id)}}} aria-label={overlay.type==="text"?`Texto: ${overlay.text}`:"Elemento do PDF"}>{overlay.type==="text"?overlay.text:""}</button>)}</div>
           {(tool==="editText"||tool==="copyFormat")&&<div className="pdf-text-selection-layer">{textItems.map(item=><button key={item.id} className="pdf-text-hitbox" style={{left:`${item.x*100}%`,top:`${item.y*100}%`,width:`${item.width*100}%`,height:`${item.height*100}%`}} onPointerDown={event=>event.stopPropagation()} onClick={()=>tool==="copyFormat"?copyFormatFromItem(item):replaceTextItem(item)} aria-label={tool==="copyFormat"?`Copiar formato de: ${item.text}`:`Editar texto: ${item.text}`} title={tool==="copyFormat"?`Usar formato de: ${item.text}`:`Editar: ${item.text}`}/>)}</div>}
