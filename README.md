@@ -99,6 +99,8 @@ O segundo comando verifica importação, RLS e justificativas com dados fictíci
 
 ## Importação de várias folhas
 
+A importação aceita **PDF e Excel (XLS/XLSX)**, com prévia dos totais antes de salvar. O PDF suportado é o Extrato Mensal digital completo no layout fornecido; preserva rubricas, horas/percentuais e pagamentos separadamente, conferindo os totais. Outros layouts ou digitalizações devem usar Excel. PDF e Excel da mesma folha são alternativas: para trocar o formato, atualize apenas a origem existente, sem somar os dois. Consulte [Importação PDF e Excel](docs/payroll-pdf-import.md).
+
 Dados da Folha aceita vários arquivos de empresas/unidades na mesma competência, com seletores de mês e ano. Novas folhas são acrescentadas; substituir uma exige selecionar explicitamente a origem. Líquido e descontos são consolidados por CPF em todas as conferências. Veja [uso, migração e validação](docs/payroll-multiple-sources.md).
 
 ## Central de ferramentas PDF

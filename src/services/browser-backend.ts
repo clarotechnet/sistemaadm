@@ -2,7 +2,7 @@ import type { ActivePayroll, AuditEntry, ComparisonRow, ComparisonStatus, FileRe
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import { fixLegacyEncoding } from "../utils/text";
 import { normalizePayrollAuditEvents } from "../modules/payroll/audit-fields";
-import { consolidatePayrollRecords } from "../modules/payroll/sources";
+import { assertDistinctPayrollPayments, consolidatePayrollRecords } from "../modules/payroll/sources";
 
 const isStaticHostinger = process.env.NEXT_PUBLIC_DEPLOY_TARGET === "static-hostinger";
 const bucket = "rh-private-files";
@@ -203,6 +203,24 @@ export interface PayrollSourceInput {payroll:ActivePayroll;label:string;fileHash
 export async function savePayrollSources(competence:string,sources:PayrollSourceInput[]):Promise<{payroll:ActivePayroll;added:number;updated:number}>{
   const supabase=createSupabaseBrowserClient();
   if(!sources.length||sources.some(source=>source.payroll.competence!==competence))throw new Error("Todas as folhas devem pertencer à competência selecionada.");
+  // Fresh read, never the consolidated month: each source must remain distinct.
+  // Byte hashes/concurrent source replacements are also checked by the RPC.
+  const month=await supabase.from("payroll_imports").select("id").eq("competence",competence).maybeSingle();
+  if(month.error)throw month.error;
+  const existing:Array<{id:string;label:string;records:PayrollRecord[]}>=[];
+  if(month.data){
+    const metadata=await listPayrollSources(month.data.id);
+    if(metadata===null)throw new Error("Atualização do banco necessária para importar várias folhas com segurança.");
+    const grouped=new Map(metadata.map(source=>[source.id,{id:source.id,label:source.label,records:[] as PayrollRecord[]}]));
+    for(let offset=0;;offset+=500){
+      const page=await supabase.from("payroll_records").select("source_id,cpf,name,liquid,health_total,dental_total,health_columns,dental_columns,source_sheet").eq("payroll_import_id",month.data.id).order("id").range(offset,offset+499).returns<PayrollRecordRow[]>();
+      if(page.error)throw page.error;
+      for(const row of page.data??[]){const source=grouped.get(row.source_id??"");if(!source)throw new Error("As origens das folhas mudaram. Recarregue a página antes de importar.");source.records.push(payrollRecordFromRow(row));}
+      if((page.data?.length??0)<500)break;
+    }
+    existing.push(...grouped.values());
+  }
+  assertDistinctPayrollPayments(existing,sources);
   const payload=sources.map(source=>({source_id:source.sourceId??null,expected_updated_at:source.expectedUpdatedAt??null,label:source.label.trim(),file_hash:source.fileHash,file_name:source.payroll.fileName,file_size:source.payroll.fileSize,logs:source.payroll.logs,records:source.payroll.records.map(record=>({cpf:record.cpf,name:record.name,liquid:record.liquid,health_total:record.healthTotal,dental_total:record.dentalTotal,health_columns:record.healthColumns,dental_columns:record.dentalColumns,source_sheet:record.sourceSheet,audit_data:record.audit??null}))}));
   const {data,error}=await supabase.rpc("save_payroll_sources",{p_competence:competence,p_sources:payload});
   if(error){if(["PGRST202","42883"].includes(error.code))throw new Error("Atualização do banco necessária para importar várias folhas. A importação foi bloqueada para não substituir os dados existentes.");throw new Error(error.message);}

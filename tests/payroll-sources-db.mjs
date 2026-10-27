@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import {readFile,readdir} from "node:fs/promises";
 import postgres from "postgres";
+import {parsePayrollPdf} from "../src/modules/payroll/pdf-parser.ts";
+import {payrollPdfFixture} from "./fixtures/payroll-pdf.ts";
 
 const url=new URL(process.env.PAYROLL_QA_DATABASE_URL??"postgres://postgres@127.0.0.1:55438/postgres");
 assert.ok(["localhost","127.0.0.1"].includes(url.hostname)&&url.port==="55438","Only the dedicated local QA cluster is allowed");
@@ -66,6 +68,17 @@ try{
     assert.equal((await sql`select has_table_privilege('anon','public.payroll_sources','SELECT') allowed`)[0].allowed,false);
     assert.equal((await sql`select has_function_privilege('anon','public.save_payroll_sources(text,jsonb)','EXECUTE') allowed`)[0].allowed,false);
     assert.equal((await sql`select count(*)::int count from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('save_payroll_sources','admin_delete_payroll_source','save_payroll_month') and p.prosecdef`)[0].count,0);
+    // Existing JSONB persistence must round-trip new optional PDF details;
+    // no production schema change is required for either import format.
+    const pdf=parsePayrollPdf(payrollPdfFixture());
+    const pdfRecords=pdf.records.map(r=>({cpf:r.cpf,name:r.name,liquid:r.liquid,health_total:r.healthTotal,dental_total:r.dentalTotal,health_columns:r.healthColumns,dental_columns:r.dentalColumns,source_sheet:r.sourceSheet,audit_data:r.audit}));
+    await sql.unsafe("set local role authenticated");
+    await save("09/2026",[{...source("PDF fictício","f",pdfRecords),file_name:"extrato-ficticio.pdf"}]);
+    const [stored]=await sql`select r.audit_data from public.payroll_records r join public.payroll_imports m on m.id=r.payroll_import_id where m.competence='09/2026' and r.cpf='00000000001'`;
+    assert.deepEqual(stored.audit_data,pdf.records[0].audit);
+    const [explicit]=await sql`select r.audit_data from public.payroll_records r join public.payroll_imports m on m.id=r.payroll_import_id where m.competence='09/2026' and r.cpf='00000000003'`;
+    assert.equal(explicit.audit_data.events.find(e=>e.code==="51").kind,"deduction");
+    passed.push("PDF references, hourly rates, explicit deductions and provenance round-trip unchanged through the existing RPC/JSONB");
     console.log(JSON.stringify({passed,transaction:"All synthetic data and schema are rolled back",database:"isolated localhost:55438"},null,2));
     throw rollback;
   });

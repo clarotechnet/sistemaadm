@@ -277,11 +277,13 @@ export function summarizeAudit(rows: AuditRow[], hasPrevious: boolean): AuditSum
 }
 
 export function detailEvents(row: AuditRow) {
-  const events = new Map<string, { key: string; label: string; previous: number | null; current: number | null }>();
+  const events = new Map<string, { key: string; label: string; previous: number | null; current: number | null; previousReference?:string; currentReference?:string }>();
   for (const [key, label] of [["baseSalary", "Salário-base"], ["gross", "Total de proventos"], ["deductions", "Total de descontos"], ["liquid", "Líquido"]] as const) events.set(key, { key, label, previous: key === "deductions" ? row.previous?.audit?.deductions ?? null : auditValue(row.previous, key), current: key === "deductions" ? row.current?.audit?.deductions ?? null : auditValue(row.current, key) });
   for (const [period, record] of [["previous", row.previous], ["current", row.current]] as const) for (const event of record?.audit?.events ?? []) {
-    const item = events.get(event.key) ?? { key: event.key, label: event.label, previous: null, current: null };
-    item[period] = event.value; events.set(event.key, item);
+    const item = events.get(event.key) ?? { key: event.key, label: event.code ? `${event.code} · ${event.label}` : event.label, previous: null, current: null };
+    item[period] = (item[period] ?? 0) + event.value;
+    item[`${period}Reference`] = [...(item[`${period}Reference`]?[item[`${period}Reference`]]:[]),...(event.references??[]).map(reference=>`${reference.raw}${reference.unit==="hours"?" h":reference.unit==="percentage"?"%":reference.unit==="amount"?" (referência)":""}`)].join(" + ");
+    events.set(event.key, item);
   }
   return [...events.values()].map(event => ({ ...event, difference: event.previous !== null && event.current !== null ? cents(event.current - event.previous) : null }));
 }

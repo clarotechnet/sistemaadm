@@ -206,6 +206,17 @@ export interface PayrollAuditEvent {
   kind: "earning" | "deduction";
   category: string;
   value: number;
+  code?: string;
+  origin?: "PDF";
+  references?: PayrollEventReference[];
+}
+
+export interface PayrollEventReference {
+  raw: string;
+  unit: "hours" | "percentage" | "amount" | "quantity";
+  minutes?: number;
+  rate?: number;
+  page?: number;
 }
 
 export interface PayrollAuditData {
@@ -226,8 +237,9 @@ export interface PayrollAuditData {
   terminationDate: string | null;
   payrollType: string;
   events: PayrollAuditEvent[];
-  occurrences: Array<{ sheet: string; row: number }>;
+  occurrences: Array<{ sheet: string; row: number; page?: number }>;
   invalidFields: string[];
+  source?: {format:"PDF";companyDocument:string;employeeKind:"EMPREGADO"|"CONTRIBUINTE";monthlyHours:string;notes:string[]};
 }
 
 export interface ActivePayroll {

@@ -61,7 +61,7 @@ const categories: Array<[string, PayrollAuditEvent["kind"], RegExp]> = [
   ["vacation", "earning", /FERIAS/],
   ["thirteenth", "earning", /(?:^13$|\b13O? (?:SALARIO|SAL|PARCELA|ADIANTAMENTO|PROPORCIONAL)\b|\b(?:PRIMEIRA|SEGUNDA|[12]) PARCELA 13\b|DECIMO TERCEIRO)/],
   ["termination", "earning", /RESCISAO|AVISO PREVIO|INDENIZAC/],
-  ["inss", "deduction", /\bINSS\b/], ["irrf", "deduction", /\bIRRF\b|IMPOSTO DE RENDA/],
+  ["inss", "deduction", /\bI ?N ?S ?S\b/], ["irrf", "deduction", /\bI ?R ?R ?F\b|IMPOSTO DE RENDA/],
   ["absence", "deduction", /FALTAS|ATRASOS/], ["transport", "deduction", /VALE TRANSPORTE/],
   ["health", "deduction", /PLANO.*SAUDE|ASSISTENCIA MEDICA|CONVENIO MEDICO/],
   ["dental", "deduction", /ODONTO/], ["loan", "deduction", /EMPRESTIMO|CONSIGNADO/],
@@ -85,7 +85,8 @@ export function classifyPayrollEvent(label: string): Pick<PayrollAuditEvent, "ki
 }
 
 export function normalizePayrollAuditEvents(data: PayrollAuditData): PayrollAuditData {
-  return { ...data, events: data.events.map(event => ({ ...event, ...(classifyPayrollEvent(event.label) ?? {}) })) };
+  // The report's explicit P/D marker is authoritative, even for férias/rescisão.
+  return { ...data, events: data.events.map(event => event.origin === "PDF" ? event : ({ ...event, ...(classifyPayrollEvent(event.label) ?? {}) })) };
 }
 
 export function createAuditReader(sheet: ParsedSheet) {
@@ -135,7 +136,7 @@ export function mergeAuditData(previous: PayrollAuditData, next: PayrollAuditDat
   const events = new Map(previous.events.map(event => [event.key, { ...event }]));
   for (const event of next.events) {
     const old = events.get(event.key);
-    events.set(event.key, { ...event, value: Math.round(((old?.value ?? 0) + event.value) * 100) / 100 });
+    events.set(event.key, { ...event, value: Math.round(((old?.value ?? 0) + event.value) * 100) / 100, ...((old?.references || event.references) ? { references: [...(old?.references ?? []), ...(event.references ?? [])] } : {}) });
   }
   return {
     ...previous, gross: sum(previous.gross, next.gross), deductions: sum(previous.deductions, next.deductions), liquid: sum(previous.liquid, next.liquid),
