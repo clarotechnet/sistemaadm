@@ -1,6 +1,7 @@
 import type { ParsedSheet, PayrollAuditData, PayrollAuditEvent } from "../../types";
 import { normalizeHeader } from "../../utils/text";
 import { parseMoney } from "../../utils/money";
+import {normalizePdfOvertimeEvent,pdfOvertimeIssues} from "./pdf-overtime";
 
 const financialAliases = {
   baseSalary: ["SALARIO BASE", "SALARIO CONTRATUAL", "SALARIO MENSAL", "SALARIO", "SAL BASE"],
@@ -86,7 +87,8 @@ export function classifyPayrollEvent(label: string): Pick<PayrollAuditEvent, "ki
 
 export function normalizePayrollAuditEvents(data: PayrollAuditData): PayrollAuditData {
   // The report's explicit P/D marker is authoritative, even for férias/rescisão.
-  return { ...data, events: data.events.map(event => event.origin === "PDF" ? event : ({ ...event, ...(classifyPayrollEvent(event.label) ?? {}) })) };
+  const events=data.events.map(event=>event.origin==="PDF"?normalizePdfOvertimeEvent(event):({...event,...(classifyPayrollEvent(event.label)??{})}));
+  return {...data,events,invalidFields:[...new Set([...(data.invalidFields??[]),...events.flatMap(pdfOvertimeIssues)])]};
 }
 
 export function createAuditReader(sheet: ParsedSheet) {

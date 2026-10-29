@@ -1,8 +1,8 @@
 import type { ComparisonRow, ParsedSheet, ParsedWorkbook } from "../types";
 import { normalizeHeader } from "../utils/text";
+import {overtimeRate} from "../modules/overtime/common";
 
 const HEADER_HINTS = ["CPF", "NOME", "COLABORADOR", "FUNCIONARIO", "LIQUIDO", "PLANO", "FOLHA", "VALOR", "COMPETENCIA"];
-const OVERTIME_PERCENTAGES = ["50%", "60%", "70%", "100%"];
 
 export async function readExcel(file: File, options: {preserveBlankRows?:boolean} = {}): Promise<ParsedWorkbook> {
   const XLSX = await import("xlsx");
@@ -42,7 +42,7 @@ export function findHeaderRow(rows: unknown[][], maxRows = 35): number {
     const headers = row.map(normalizeHeader).filter(Boolean);
     const matches = HEADER_HINTS.filter(hint => headers.some(header => header === hint || header.includes(hint))).length;
     const hasPerson = headers.some(header => ["NOME", "COLABORADOR", "FUNCIONARIO"].some(alias => header === alias || header.includes(alias)));
-    const overtimeMatches = OVERTIME_PERCENTAGES.filter(percent => headers.some(header => header.includes(percent) && (header.includes("H EX") || header.includes("EXTRA") || header.includes("HE ")))).length;
+    const overtimeMatches = headers.filter(header=>overtimeRate(header)!==null).length;
     const overtimeHeader = hasPerson && overtimeMatches >= 1;
     const score = matches * 4 + overtimeMatches * 5 + Math.min(headers.length, 12) * 0.15;
     if (score > best.score && (matches >= 2 || overtimeHeader)) best = { row: index, score };

@@ -18,6 +18,14 @@ A leitura reconstrói linhas/colunas por posição dos itens PDF.js, sem assumir
 
 Por CPF ficam preservados nome, líquido, proventos, descontos, salário contratual, situação histórica, admissão válida, matrícula/código do extrato, cargo, centro de custo/departamento/filial, rubricas, referências, página e observações. Contribuintes ficam identificados separadamente. Datas como `00/00/0000` permanecem apenas no texto original, nunca como datas válidas. Nada atualiza automaticamente o cadastro/situação atual do QuarkRH. Saúde e Odonto utilizam os descontos monetários das rubricas correspondentes, no mesmo consolidado já usado pelo sistema.
 
+Nas rubricas de horas extras com percentual, o leitor também aceita a convenção
+`H,MM` do PDF: `27,06` representa 27 horas e 6 minutos, não horas decimais. Esta
+interpretação não se aplica aos valores pagos, aos impostos ou às quantidades de
+outras rubricas. Referências anteriores guardadas como quantidade são normalizadas
+somente em memória durante a leitura; os dados originais e os pagamentos salvos
+permanecem intactos. Minutos acima de 59, como `28,70`, geram aviso para correção
+pelo RH e não são somados nem usados para atestar o total de horas do resumo.
+
 ### Conferências
 
 - Empresa e competência precisam ser consistentes em todas as páginas. A competência do PDF deve coincidir com a selecionada.

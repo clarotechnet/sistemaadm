@@ -97,6 +97,15 @@ node scripts/verify-payroll-audit-db.mjs --project=SEU_PROJECT_REF
 
 O segundo comando verifica importação, RLS e justificativas com dados fictícios dentro de uma transação que sempre é revertida. Não executá-lo contra outro produto.
 
+## Conferência de Horas Extras
+
+**Conferência → Horas Extras** compara a planilha de referência XLS/XLSX com as
+horas e pagamentos dos PDFs já importados, separando cada percentual. As referências
+ficam compartilhadas com RH/Administradores por competência e origem. Nomes
+aproximados exigem confirmação; horários como `28:70` ficam inválidos para correção
+pelo RH, sem conversão automática. O valor em R$ esperado só é comparado quando
+existe uma coluna monetária explícita. Veja [uso, segurança e validação](docs/payroll-overtime-audit.md).
+
 ## Importação de várias folhas
 
 A importação aceita **PDF e Excel (XLS/XLSX)**, com prévia dos totais antes de salvar. O PDF suportado é o Extrato Mensal digital completo no layout fornecido; preserva rubricas, horas/percentuais e pagamentos separadamente, conferindo os totais. Outros layouts ou digitalizações devem usar Excel. PDF e Excel da mesma folha são alternativas: para trocar o formato, atualize apenas a origem existente, sem somar os dois. Consulte [Importação PDF e Excel](docs/payroll-pdf-import.md).

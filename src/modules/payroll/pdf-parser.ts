@@ -1,6 +1,8 @@
 import type {PayrollAuditData,PayrollAuditEvent,PayrollEventReference,PayrollRecord} from "../../types";
 import {classifyPayrollEvent} from "./audit-fields";
 import {normalizeHeader} from "../../utils/text";
+import {overtimeRate} from "../overtime/common";
+import {pdfOvertimeDuration,pdfOvertimeIssues} from "./pdf-overtime";
 
 export interface PayrollPdfItem {text:string;x:number;y:number;width:number;height:number}
 export interface PayrollPdfPage {number:number;width:number;height:number;items:PayrollPdfItem[]}
@@ -40,6 +42,10 @@ function date(value:string):string|null{
 function reference(raw:string,label:string,page:number):PayrollEventReference{
   const h=raw.match(/^(\d+):(\d{2})$/),rate=label.match(/(\d+(?:[.,]\d+)?)\s*%/);
   if(h){if(Number(h[2])>59)fail(page,"referência de horas inválida.");return{raw,unit:"hours",minutes:Number(h[1])*60+Number(h[2]),...(rate?{rate:Number(rate[1].replace(",","."))}:{}),page};}
+  if(overtimeRate(label)){
+    const duration=pdfOvertimeDuration(raw);
+    if(duration)return{raw,unit:"hours",...(duration.minutes===null?{}:{minutes:duration.minutes}),...(rate?{rate:Number(rate[1].replace(",","."))}:{}),page};
+  }
   if(!new RegExp(`^${moneyPattern}$`).test(raw))fail(page,"referência de rubrica não reconhecida.");
   const normalized=normalizeHeader(label);
   return{raw,unit:/PERICULOSIDADE|INSALUBRIDADE|I ?N ?S ?S|I ?R ?R ?F|IMPOSTO DE RENDA|PERCENTUAL/.test(normalized)?"percentage":/PLANO|EMPRESTIMO|CRED.*TRAB/.test(normalized)?"amount":"quantity",...(rate?{rate:Number(rate[1].replace(",","."))}:{}),page};
@@ -118,6 +124,7 @@ export function parsePayrollPdf(pages:PayrollPdfPage[]):PayrollPdfResult{
       const contributor=header.text.startsWith("Contr:");if(contributor)contributorCount++;else employeeCount++;
       const notes=block.slice(totalIndex+1).filter(row=>!/^NF:|Totais por|Total:|Total Geral|L[ií]quido Geral:|Sistema licenciado/i.test(row.text)&&row.y<page.height*.96).map(row=>row.text);
       const audit:PayrollAuditData={version:1,baseSalary:money(salary!),...totals,company,unit:job.match(/Filial:\s*(\S+)/)?.[1]??"",costCenter:contract.match(/CC:\s*(\S+)/)?.[1]??"",department:contract.match(/Depto:\s*(\S+)/)?.[1]??"",jobTitle:job.match(/Cargo:\s*(.*?)\s+C\.B\.O:/)?.[1]??"",registration:name![1],internalId:name![1],employmentStatus:state!,admissionDate:date(header.text.match(/Adm:\s*(\d{2}\/\d{2}\/\d{4})/)?.[1]??""),terminationDate:null,payrollType:"Folha Mensal",events,occurrences:[{sheet:`PDF · página ${page.number}`,row:index+1,page:page.number}],invalidFields:[],source:{format:"PDF",companyDocument,employeeKind:contributor?"CONTRIBUINTE":"EMPREGADO",monthlyHours:contract.match(/Horas M[eê]s:\s*(\S+)/)?.[1]??"",notes}};
+      const referenceIssues=events.flatMap(pdfOvertimeIssues);audit.invalidFields.push(...referenceIssues);warnings.push(...referenceIssues);
       const health=events.filter(event=>event.kind==="deduction"&&event.category==="health"),dental=events.filter(event=>event.kind==="deduction"&&event.category==="dental");
       records.push({cpf:cpf!,name:name![2].trim(),liquid:totals.liquid,healthTotal:health.reduce((sum,event)=>sum+cents(event.value),0)/100,dentalTotal:dental.reduce((sum,event)=>sum+cents(event.value),0)/100,healthColumns:health.length,dentalColumns:dental.length,sourceSheet:`PDF · página ${page.number}`,audit});
     }
@@ -135,7 +142,9 @@ export function parsePayrollPdf(pages:PayrollPdfPage[]):PayrollPdfResult{
     const matching=allEvents.filter(item=>item.code===event.code&&item.kind===event.kind),value=matching.reduce((sum,item)=>sum+cents(item.value),0);
     if(value!==cents(event.value))throw new Error(`A rubrica ${event.code} (${event.label}) não fecha com o resumo. Use o extrato completo ou Excel.`);
     const ref=event.references?.[0];if(ref?.unit==="hours"){
-      const minutes=matching.flatMap(item=>item.references??[]).reduce((sum,item)=>sum+(item.minutes??0),0);
+      const individualReferences=matching.flatMap(item=>item.references??[]);
+      if(ref.minutes===undefined||individualReferences.some(item=>item.unit!=="hours"||item.minutes===undefined)){warnings.push(`Rubrica ${event.code} (${event.label}): há referência de horas inválida; o total de horas não foi atestado. Valores em R$ preservados.`);continue;}
+      const minutes=individualReferences.reduce((sum,item)=>sum+item.minutes!,0);
       if(minutes!==ref.minutes)warnings.push(`Rubrica ${event.code} (${event.label}): referências individuais somam ${Math.floor(minutes/60)}:${String(minutes%60).padStart(2,"0")}; resumo informa ${ref.raw}. Diferença de ${Math.abs(minutes-ref.minutes!)} minuto(s). Valores originais preservados.`);
     }
   }

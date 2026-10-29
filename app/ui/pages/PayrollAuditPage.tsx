@@ -13,6 +13,7 @@ import { formatCpf } from "../../../src/utils/cpf";
 import { formatMoney } from "../../../src/utils/money";
 import { EmptyState, MetricCard } from "../components/Common";
 import { useApp } from "../state/AppContext";
+import {PayrollOvertimeAuditPage} from "./PayrollOvertimeAuditPage";
 
 const money = (value: number | null) => formatMoney(value);
 const percentage = (value: number | null) => value === null ? "—" : `${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
@@ -30,6 +31,12 @@ const metricCards: Array<{ key: AuditMetric; label: string; tone: string }> = [
 ];
 
 export function PayrollAuditPage({ onImport }: { onImport: () => void }) {
+  const app=useApp(),[tab,setTab]=useState("liquid"),[visited,setVisited]=useState(false);
+  if(app.user.role==="CONSULTA")return <EmptyState title="Acesso restrito" description="A Conferência de folha está disponível para RH e Administradores."/>;
+  return <><div className="tabs" role="tablist" aria-label="Tipo de conferência"><button id="audit-liquid-tab" role="tab" aria-selected={tab==="liquid"} aria-controls="audit-liquid-panel" className={tab==="liquid"?"active":""} onClick={()=>setTab("liquid")}>Líquido e achados</button><button id="audit-overtime-tab" role="tab" aria-selected={tab==="overtime"} aria-controls="audit-overtime-panel" className={tab==="overtime"?"active":""} onClick={()=>{setTab("overtime");setVisited(true);}}>Horas Extras</button></div><div id="audit-liquid-panel" role="tabpanel" aria-labelledby="audit-liquid-tab" hidden={tab!=="liquid"}><PayrollLiquidAuditPage onImport={onImport}/></div><div id="audit-overtime-panel" role="tabpanel" aria-labelledby="audit-overtime-tab" hidden={tab!=="overtime"}>{visited&&<PayrollOvertimeAuditPage/>}</div></>;
+}
+
+function PayrollLiquidAuditPage({ onImport }: { onImport: () => void }) {
   const app = useApp();
   const [currentChoice, setCurrentMonth] = useState("");
   const [comparisonMonths, setComparisonMonths] = useState(3);

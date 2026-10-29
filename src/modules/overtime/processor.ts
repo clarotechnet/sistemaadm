@@ -5,30 +5,18 @@ import { normalizeText, nameSimilarity } from "../../utils/text";
 import { extractPdfText, addOvertimeBox } from "../../services/pdf";
 import { uniqueArchiveName } from "../../services/pdf-core";
 import { downloadFile } from "../../utils/download";
+import {formatOvertimeHours,overtimeColumns} from "./common";
+export {formatOvertimeHours} from "./common";
 
 export type OvertimeRecord = { name:string; hours:Record<string,string> };
 export type OvertimeMatch = { id:string; file:File; pdfName:string; excelName:string|null; hours:Record<string,string>; matchType:"EXATA"|"APROXIMADA"|"NÃO LOCALIZADO"; similarity:number; approved:boolean;identification:"TEXTO_PDF"|"NOME_ARQUIVO" };
-const hourAliases:Record<string,string[]>={
-  "H EX 50%":["H EX 50%","H EX 50","H EXTRA 50%","H EXTRAS 50%","HE 50%"],
-  "H EX 60%":["H EX 60%","H EX 60","H EXTRA 60%","H EXTRAS 60%","HE 60%"],
-  "H EX 70%":["H EX 70%","H EX 70","H EXTRA 70%","H EXTRAS 70%","HE 70%"],
-  "H EX 100%":["H EX 100%","H EX 100","H EXTRA 100%","H EXTRAS 100%","HE 100%"],
-};
 
 export function parseOvertimeWorkbook(workbook:ParsedWorkbook):{records:OvertimeRecord[];columns:string[]}{
   const records:OvertimeRecord[]=[];const columns=new Set<string>();
-  for(const sheet of workbook.sheets){const nameIndex=detectColumns(sheet.headers,["COLABORADOR","NOME","FUNCIONARIO"])[0];if(nameIndex===undefined)continue;const hourIndexes=Object.entries(hourAliases).flatMap(([alias,aliases])=>{const index=detectColumns(sheet.headers,aliases)[0];return index===undefined?[]:[{alias,index}]});hourIndexes.forEach(item=>columns.add(item.alias));for(const row of sheet.rows){const name=String(row[nameIndex]??"").trim();const normalizedName=normalizeText(name);if(!name||["COLABORADOR","NOME","FUNCIONARIO"].includes(normalizedName))continue;const hours:Record<string,string>=Object.fromEntries(hourIndexes.map(({alias,index})=>[alias,formatOvertimeHours(row[index])]));records.push({name,hours});}}
-  const names=new Set<string>();for(const record of records){const normalized=normalizeText(record.name);if(names.has(normalized))throw new Error(`Nome repetido na planilha: ${record.name}. Corrija a ambiguidade antes de associar horas aos PDFs.`);names.add(normalized);}if(!records.length)throw new Error("Nenhuma coluna COLABORADOR/NOME foi encontrada no Excel.");if(!columns.size)throw new Error("O Excel não possui nenhuma coluna de horas extras reconhecida (50%, 60%, 70% ou 100%).");return{records,columns:[...columns]};
+  for(const sheet of workbook.sheets){const nameIndex=detectColumns(sheet.headers,["COLABORADOR","NOME","FUNCIONARIO"])[0];if(nameIndex===undefined)continue;const hourIndexes=overtimeColumns(sheet.headers).filter(column=>column.kind==="hours").map(column=>({alias:`H EX ${column.rate}%`,index:column.index}));hourIndexes.forEach(item=>columns.add(item.alias));for(const row of sheet.rows){const name=String(row[nameIndex]??"").trim();const normalizedName=normalizeText(name);if(!name||["COLABORADOR","NOME","FUNCIONARIO"].includes(normalizedName))continue;const hours:Record<string,string>=Object.fromEntries(hourIndexes.map(({alias,index})=>[alias,formatOvertimeHours(row[index])]));records.push({name,hours});}}
+  const names=new Set<string>();for(const record of records){const normalized=normalizeText(record.name);if(names.has(normalized))throw new Error(`Nome repetido na planilha: ${record.name}. Corrija a ambiguidade antes de associar horas aos PDFs.`);names.add(normalized);}if(!records.length)throw new Error("Nenhuma coluna COLABORADOR/NOME foi encontrada no Excel.");if(!columns.size)throw new Error("O Excel não possui nenhuma coluna H. EX com percentual reconhecido (por exemplo, 50%, 60%, 70% ou 100%).");return{records,columns:[...columns]};
 }
 
-export function formatOvertimeHours(value:unknown):string {
-  if(value===null||value===undefined||String(value).trim()==="")return "00:00";
-  if(value instanceof Date){if(!Number.isFinite(value.getTime()))throw new Error("Horário inválido na planilha.");const minutes=value.getUTCFullYear()<1905?Math.round((value.getTime()-Date.UTC(1899,11,30))/60000):value.getUTCHours()*60+value.getUTCMinutes();if(minutes<0)throw new Error("Duração negativa na planilha.");return `${String(Math.floor(minutes/60)).padStart(2,"0")}:${String(minutes%60).padStart(2,"0")}`;}
-  if(typeof value==="number"){if(!Number.isFinite(value)||value<0)throw new Error("Duração inválida na planilha.");const total=Math.round(value*24*60);return `${String(Math.floor(total/60)).padStart(2,"0")}:${String(total%60).padStart(2,"0")}`;}
-  const text=String(value).trim(),match=text.match(/^(\d+):([0-5]\d)(?::([0-5]\d))?$/);
-  if(!match)throw new Error(`Hora extra inválida: ${text}. Use HH:MM ou uma duração de Excel.`);
-  return `${match[1].padStart(2,"0")}:${match[2]}`;
-}
 const containsName=(text:string,name:string)=>(" "+text+" ").includes(" "+normalizeText(name)+" ");
 
 export function identifyOvertimeName(text:string,fileName:string,records:OvertimeRecord[]):{name:string;fromText:boolean}{

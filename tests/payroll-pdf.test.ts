@@ -30,6 +30,31 @@ test("PDF explicit deduction remains a deduction after database read and referen
   assert.match(detailEvents(report.rows.find(row=>row.cpf===result.records[0].cpf)!).find(event=>event.key==="150 HORAS EXTRAS 60%")!.currentReference!,/21:55 h/);
 });
 
+test("PDF overtime comma references are H,MM, without changing money, tax percentages or other quantities",()=>{
+  const pages=payrollPdfFixture();
+  pages[0].items.find(item=>item.text==="21:55")!.text="27,06";
+  pages[1].items.find(item=>item.text==="21:54")!.text="6,27";
+  const result=parsePayrollPdf(pages),event=result.records[0].audit!.events.find(event=>event.code==="150")!;
+  assert.deepEqual(event.references,[{raw:"27,06",unit:"hours",minutes:1626,rate:60,page:1}]);assert.equal(event.value,347.75);
+  assert.deepEqual(result.totals,{gross:2898.70,deductions:804.01,liquid:2094.69,health:419,dental:55.45});
+  const other=result.records[0].audit!.events;
+  assert.equal(other.find(event=>event.code==="149")!.references![0].unit,"percentage");assert.equal(other.find(event=>event.code==="998")!.references![0].unit,"percentage");assert.equal(other.find(event=>event.code==="201")!.references![0].unit,"amount");assert.equal(other.find(event=>event.code==="250")!.references![0].unit,"quantity");
+  assert.match(result.warnings.join(" "),/resumo informa 6,27/);
+});
+
+test("invalid comma minutes are preserved for RH and cannot attest a summary of paid hours",()=>{
+  const pages=payrollPdfFixture();pages[0].items.find(item=>item.text==="21:55")!.text="28,70";
+  const result=parsePayrollPdf(pages),audit=result.records[0].audit!,reference=audit.events.find(event=>event.code==="150")!.references![0];
+  assert.equal(reference.raw,"28,70");assert.equal(reference.unit,"hours");assert.equal(reference.minutes,undefined);assert.match(audit.invalidFields.join(" "),/28,70/);assert.match(result.warnings.join(" "),/total de horas não foi atestado/);assert.equal(result.totals.liquid,2094.69);
+});
+
+test("previously stored PDF quantities gain hours only in memory, preserving original JSON and payments",()=>{
+  const record=parsePayrollPdf(payrollPdfFixture()).records[0],stored=structuredClone(record.audit!);
+  stored.events.find(event=>event.code==="150")!.references=[{raw:"6,27",unit:"quantity",rate:60,page:1}];
+  const before=JSON.stringify(stored),restored=payrollRecordFromRow({cpf:record.cpf,name:record.name,liquid:record.liquid,health_total:record.healthTotal,dental_total:record.dentalTotal,health_columns:record.healthColumns,dental_columns:record.dentalColumns,source_sheet:record.sourceSheet,audit_data:stored});
+  assert.equal(JSON.stringify(stored),before);assert.equal(restored.audit!.events.find(event=>event.code==="150")!.references![0].minutes,387);assert.equal(restored.audit!.events.find(event=>event.code==="150")!.value,347.75);assert.equal(restored.liquid,record.liquid);
+});
+
 test("PDF data participates in the existing health and dental comparisons",()=>{
   const result=parsePayrollPdf(payrollPdfFixture()),payroll={id:"x",competence:"09/2026",fileName:"test.pdf",fileSize:10,importedAt:"2026-10-01",importedBy:"Teste",records:result.records,logs:[]};
   assert.equal(comparePlan(payroll,[{cpf:result.records[0].cpf,name:"Ana",value:419}],"health",.01).summary.ok,1);
