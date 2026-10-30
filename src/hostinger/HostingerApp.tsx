@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { ApprovalPending } from "../../app/ui/ApprovalPending";
 import { LoginScreen } from "../../app/ui/LoginScreen";
+import { PasswordRecoveryScreen } from "../../app/ui/PasswordRecoveryScreen";
 import { RegistrationScreen } from "../../app/ui/RegistrationScreen";
 import { RHControlApp } from "../../app/ui/RHControlApp";
 import { SignupScreen } from "../../app/ui/SignupScreen";
@@ -27,6 +28,14 @@ function appRouteFromPath(path: string): AppRoute {
 }
 
 export function HostingerApp() {
+  // Public recovery routes must run before profile loading and automatic callbacks.
+  const path = window.location.pathname;
+  if (path === "/recuperar-senha" || path === "/recuperar-senha/") return <PasswordRecoveryScreen mode="request" />;
+  if (path === "/redefinir-senha" || path === "/redefinir-senha/") return <PasswordRecoveryScreen mode="reset" />;
+  return <AuthenticatedHostingerApp />;
+}
+
+function AuthenticatedHostingerApp() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);

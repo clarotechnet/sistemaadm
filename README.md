@@ -33,6 +33,8 @@ O workflow publica somente `dist-hostinger/` em `./administrativo/`. Os secrets 
 
 No Supabase Auth, configure a URL principal como `https://administrativo.clarotechnet.com.br` e permita o redirecionamento `https://administrativo.clarotechnet.com.br/auth/callback`. Aplique `supabase/SQL_EDITOR_ALL.sql` em um projeto vazio e publique a função `invite-rh-user` com validação JWT.
 
+O login inclui **Esqueci minha senha**, com recuperação por e-mail. Preserve as URLs existentes e permita também `https://administrativo.clarotechnet.com.br/redefinir-senha` no Supabase RH correto. A entrega em produção exige SMTP configurado. Veja [configuração e validação da recuperação](docs/password-recovery.md).
+
 No frontend e no build estático, use somente `publishable` ou a chave legada `anon` do mesmo projeto. Chaves `secret` e `service_role` pertencem exclusivamente ao backend e nunca devem entrar no build público.
 
 ## Comandos úteis

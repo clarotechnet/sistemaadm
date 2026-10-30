@@ -883,3 +883,13 @@ button.movement-kpi:hover,button.movement-kpi.selected{border-color:var(--primar
 .payroll-overtime .overtime-association-content>.button{margin:0;max-width:100%;min-height:34px;white-space:normal;text-align:left}
 .payroll-overtime .overtime-association-content>details{margin:0;max-width:100%;width:100%;overflow-wrap:anywhere}
 .payroll-overtime .overtime-association-content summary{cursor:pointer;line-height:1.5}
+.auth-recovery-link{display:block;width:fit-content;margin:-2px 0 18px auto;color:var(--primary);font-size:11px;font-weight:700;text-underline-offset:3px}
+.auth-recovery-link:focus-visible,.password-recovery-page a:focus-visible{outline:2px solid var(--primary);outline-offset:4px}
+.password-recovery-card{max-width:460px;box-sizing:border-box;color:#202020;background:#fff}
+.recovery-brand{display:flex;align-items:center;gap:9px;margin-bottom:24px}.recovery-brand img{width:38px;height:38px;object-fit:contain}.recovery-brand strong{font-size:16px}
+.password-recovery-card form{margin-top:18px}.password-recovery-card .field input{min-height:43px;width:100%;box-sizing:border-box;background:#fff;color:#202020;border:1px solid #d4d4d4}
+.password-recovery-card .field>span{color:#444}.password-recovery-card .inline-error{margin:12px 0;font-size:12px!important;line-height:1.5}.password-recovery-card .button{min-height:43px;font-size:12px}
+.password-recovery-card .recovery-help{font-size:11px;color:#666;line-height:1.6;margin:12px 0}.password-recovery-card #password-requirements{margin:-4px 0 14px}
+.recovery-feedback{display:grid;gap:14px;margin:20px 0}.recovery-feedback>svg{width:34px;height:34px;color:#268454}.recovery-feedback h2{font-size:18px;margin:0}.recovery-feedback p{font-size:12px;line-height:1.6;margin:0;color:#555}
+.recovery-notice{display:flex;align-items:flex-start;gap:9px;padding:12px;border:1px solid #b7d8c5;border-radius:8px;background:#f0faf4;color:#205c39;margin:16px 0}.recovery-notice svg{width:20px;height:20px;flex-shrink:0}.recovery-notice p{font-size:12px;line-height:1.6;margin:0}
+@media(max-width:600px){.password-recovery-page{padding:20px 16px}.password-recovery-card{padding:24px;width:100%;margin:24px auto}.password-recovery-page .back-link{font-size:12px}}
