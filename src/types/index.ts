@@ -59,6 +59,9 @@ export interface AggregationMonthlyRecord {
   medicalDays: number;
   vacationDays: number;
   maintenanceVehicleDays: number;
+  fleetMaintenanceDays?: number | null;
+  maintenanceIsManual?: boolean;
+  fleetSyncedAt?: string | null;
   employmentDays: number;
   payableDays: number;
   amountDue: number;

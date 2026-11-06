@@ -1,0 +1,5 @@
+.fleet-maintenance-source{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:5px;font-size:11px;white-space:normal;min-width:112px}
+.fleet-maintenance-source small{font-size:11px}
+.fleet-maintenance-action{border:0;background:transparent;color:var(--accent,#e0353b);cursor:pointer;font-size:11px;padding:3px 5px;text-decoration:underline;text-underline-offset:3px}
+.fleet-maintenance-action:disabled{cursor:wait;opacity:.6}
+.aggregation-monthly-actions{flex-wrap:wrap}

@@ -90,9 +90,43 @@ export async function listAggregationMonthly(competence:string):Promise<Aggregat
   const supabase=createSupabaseBrowserClient();
   const month=competence.match(/^\d{4}-\d{2}$/)?.[0];
   if(!month)return [];
-  const {data,error}=await supabase.from("benefit_aggregation_monthly").select("*").eq("competence",month+"-01").order("employee_name");
+  const [monthly,fleet,manual]=await Promise.all([
+    supabase.from("benefit_aggregation_monthly").select("*").eq("competence",month+"-01").order("employee_name"),
+    supabase.from("benefit_aggregation_fleet_days").select("aggregation_id,days,synced_at").eq("competence",month+"-01"),
+    supabase.from("benefit_aggregation_monthly_overrides").select("aggregation_id").eq("competence",month+"-01"),
+  ]);
+  if(monthly.error||fleet.error||manual.error)throw monthly.error??fleet.error??manual.error;
+  const fleetById=new Map((fleet.data??[]).map(row=>[row.aggregation_id,row]));
+  const manualIds=new Set((manual.data??[]).map(row=>row.aggregation_id));
+  return ((monthly.data??[]) as MonthlyRow[]).map(row=>({
+    ...monthlyFromRow(row),fleetMaintenanceDays:fleetById.get(row.aggregation_id)?.days??null,
+    fleetSyncedAt:fleetById.get(row.aggregation_id)?.synced_at??null,
+    maintenanceIsManual:manualIds.has(row.aggregation_id),
+  }));
+}
+
+export type FleetSyncRun={id:string;status:"RUNNING"|"SUCCESS"|"ERROR";started_at:string;completed_at:string|null;triggered_by_name:string;processed_count:number;manual_preserved_count:number;warning_message:string|null;error_message:string|null};
+export type FleetSyncInfo={configured:boolean;lastSuccess:FleetSyncRun|null;latestAttempt:FleetSyncRun|null};
+const fleetCompetence=(value:string)=>{
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(value))throw new Error("Competência inválida.");
+  return value+"-01";
+};
+export async function loadFleetSyncInfo(competence:string):Promise<FleetSyncInfo>{
+  const {data,error}=await createSupabaseBrowserClient().rpc("benefit_frota_sync_status",{p_competence:fleetCompetence(competence)});
   if(error)throw error;
-  return ((data??[]) as MonthlyRow[]).map(monthlyFromRow);
+  const result=data as {configured:boolean;last_success:FleetSyncRun|null;latest_attempt:FleetSyncRun|null};
+  return {configured:result.configured===true,lastSuccess:result.last_success,latestAttempt:result.latest_attempt};
+}
+export async function syncFleetMaintenance(competence:string){
+  const {data,error}=await createSupabaseBrowserClient().rpc("sync_benefit_frota_maintenance",{p_competence:fleetCompetence(competence)});
+  if(error)throw error;
+  const result=data as {ok:boolean;rows:number;manual_preserved:number;warning:string|null;error?:string};
+  if(!result?.ok)throw new Error(result?.error??"Não foi possível atualizar os dias da Frota.");
+  return result;
+}
+export async function useFleetMaintenance(competence:string,aggregationId:string){
+  const {error}=await createSupabaseBrowserClient().rpc("use_benefit_frota_maintenance",{p_competence:fleetCompetence(competence),p_aggregation_id:aggregationId});
+  if(error)throw error;
 }
 
 export async function saveAggregationMaintenance(competence:string,aggregationId:string,days:number){

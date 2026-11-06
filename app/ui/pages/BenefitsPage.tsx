@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, Bus, CalendarDays, Check, FileSpreadsheet, HeartPulse, Pencil, Plus, RefreshCw, Search, Stethoscope, Upload, X } from "lucide-react";
+import { Boxes, Bus, CalendarDays, CarFront, Check, FileSpreadsheet, HeartPulse, Pencil, Plus, RefreshCw, Search, Stethoscope, Upload, X } from "lucide-react";
 import type { AggregationBaseRecord, AggregationMonthlyRecord } from "../../../src/types";
 import { formatCpf } from "../../../src/utils/cpf";
 import { formatMoney } from "../../../src/utils/money";
-import { exportAggregationPaymentExcel, listAggregationBase, listAggregationMonthly, saveAggregationBase, saveAggregationMaintenance, syncAggregationMonth, upsertAggregationBase } from "../../../src/services/benefit-aggregation";
+import { exportAggregationPaymentExcel, listAggregationBase, listAggregationMonthly, saveAggregationBase, saveAggregationMaintenance, syncAggregationMonth, syncFleetMaintenance, useFleetMaintenance, upsertAggregationBase } from "../../../src/services/benefit-aggregation";
 import { readExcel } from "../../../src/services/excel";
 import { normalizeText } from "../../../src/utils/text";
 import { EmptyState, MetricCard, StatusBadge } from "../components/Common";
@@ -13,6 +13,8 @@ import { useApp } from "../state/AppContext";
 import { BenefitVehiclesTab } from "./BenefitVehiclesTab";
 import { PlanBenefitModule } from "./PlanBenefitModule";
 import { AggregationSyncNotice } from "../components/AggregationSyncNotice";
+import { FleetSyncNotice } from "../components/FleetSyncNotice";
+import "./fleet-maintenance.css";
 
 type BenefitTool="aggregation"|"transport"|"health"|"dental";
 type AggregationTab="base"|"monthly"|"vehicles";
@@ -46,6 +48,8 @@ function AggregationModule(){
   const[monthly,setMonthly]=useState<AggregationMonthlyRecord[]>([]);
   const[loading,setLoading]=useState(true);
   const[syncing,setSyncing]=useState(false);
+  const[fleetSyncing,setFleetSyncing]=useState(false);
+  const[fleetConfigured,setFleetConfigured]=useState(false);
   const[importing,setImporting]=useState(false);
   const[exporting,setExporting]=useState(false);
   const[differenceOnly,setDifferenceOnly]=useState(false);
@@ -132,13 +136,31 @@ function AggregationModule(){
   const sync=async()=>{
     setSyncing(true);
     try{
-      const result=await syncAggregationMonth(competence);await reloadMonthly();
-      const warning=(result.warnings??[]).join(" ");
+      const result=await syncAggregationMonth(competence);
+      const warnings=[...(result.warnings??[])];
+      if(fleetConfigured){
+        try{
+          const fleet=await syncFleetMaintenance(competence);
+          if(fleet.warning)warnings.push(fleet.warning);
+        }catch(e){warnings.push(`QuarkRH atualizado. ${e instanceof Error?e.message:"A consulta da Frota falhou; os dias anteriores foram mantidos."}`);}
+      }
+      await reloadMonthly();
+      const warning=warnings.join(" ");
       app.addAudit({operation:"Atualizou Agregamento mensal",module:"Benefícios",result:`${competence}: ${result.rows??0} colaboradores · ${result.faltas??0} faltas · ${result.atestados??0} atestados · ${result.ferias??0} férias`,status:warning?"AVISO":"SUCESSO",processedCount:result.rows});
       if(warning)app.toast("warning","Agregamento atualizado com ressalvas",warning);
       else app.toast("success","Agregamento atualizado pelo QuarkRH",`${result.rows??0} colaborador(es) · faltas, atestados e férias atualizados.`);
     }catch(e){app.toast("error","Não foi possível consultar o QuarkRH",e instanceof Error?e.message:undefined)}
     finally{setSyncing(false);setSyncRevision(value=>value+1)}
+  };
+  const syncFleet=async()=>{
+    setFleetSyncing(true);
+    try{
+      const result=await syncFleetMaintenance(competence);
+      await reloadMonthly();
+      app.addAudit({operation:"Atualizou manutenção pela Frota",module:"Benefícios",result:`${competence}: ${result.rows} cadastro(s) · ${result.manual_preserved} ajuste(s) manual(is) preservado(s)`,status:result.warning?"AVISO":"SUCESSO",processedCount:result.rows});
+      app.toast(result.warning?"warning":"success","Dias da Frota atualizados",result.warning??`${result.rows} cadastro(s) atualizado(s). Ajustes manuais preservados.`);
+    }catch(e){app.toast("error","Não foi possível atualizar pela Frota",e instanceof Error?e.message:undefined)}
+    finally{setFleetSyncing(false);setSyncRevision(value=>value+1)}
   };
   const exportPayment=async()=>{
     setExporting(true);
@@ -158,7 +180,7 @@ function AggregationModule(){
       <button className={tab==="monthly"?"active":""} onClick={()=>setTab("monthly")}>Agregamentos mensal</button>
       <button className={tab==="vehicles"?"active":""} onClick={()=>setTab("vehicles")}>Veículos</button>
     </div>
-    {tab==="monthly"&&<AggregationSyncNotice competence={competence} refresh={syncRevision}/>}
+    {tab==="monthly"&&<><AggregationSyncNotice competence={competence} refresh={syncRevision}/><FleetSyncNotice competence={competence} refresh={syncRevision} onConfigured={setFleetConfigured}/></>}
     {tab==="vehicles"?<BenefitVehiclesTab base={base}/>:<>
     {tab==="base"?<div className="metrics-grid">
       <MetricCard label="AGREGADOS" value={base.length} detail="CPFs cadastrados"/>
@@ -193,9 +215,9 @@ function AggregationModule(){
         <div className="search-box"><Search size={16}/><input placeholder="Pesquisar colaborador ou CPF" value={query} onChange={e=>setQuery(e.target.value)}/></div>
         <select value={company} onChange={e=>{setCompany(e.target.value);setDifferenceOnly(false)}}><option value="TODAS">Todas as empresas</option>{companies.map(item=><option key={item}>{item}</option>)}</select>
         <select value={city} onChange={e=>{setCity(e.target.value);setDifferenceOnly(false)}}><option value="TODAS">Todas as cidades</option>{cities.map(item=><option key={item}>{item}</option>)}</select>
-        {tab==="base"?<div className="aggregation-base-actions"><label className={`button secondary ${importing?"disabled":""}`}><Upload size={16}/>{importing?"Importando...":"Importar / Atualizar base"}<input type="file" accept=".xls,.xlsx" disabled={importing} hidden onChange={e=>{const file=e.target.files?.[0];if(file)void importBase(file);e.currentTarget.value=""}}/></label><button className="button primary" onClick={()=>startEdit()}><Plus size={16}/> Adicionar novo agregado</button></div>:<div className="aggregation-monthly-actions"><label className="aggregation-competence"><CalendarDays size={16}/><input type="month" value={competence} onChange={e=>{setCompetence(e.target.value);setDifferenceOnly(false)}}/></label><button className="button secondary" title="Exporta CPF e Valor a receber dos filtros atuais, separados por empresa." disabled={exporting||!filteredMonthlyBase.length} onClick={()=>void exportPayment()}><FileSpreadsheet size={16}/>{exporting?"Gerando...":"Relatório de pagamento"}</button><button className="button primary" disabled={syncing} onClick={()=>void sync()}><RefreshCw className={syncing?"spin":""} size={16}/>{syncing?"Consultando...":"Atualizar pelo QuarkRH"}</button></div>}
+        {tab==="base"?<div className="aggregation-base-actions"><label className={`button secondary ${importing?"disabled":""}`}><Upload size={16}/>{importing?"Importando...":"Importar / Atualizar base"}<input type="file" accept=".xls,.xlsx" disabled={importing} hidden onChange={e=>{const file=e.target.files?.[0];if(file)void importBase(file);e.currentTarget.value=""}}/></label><button className="button primary" onClick={()=>startEdit()}><Plus size={16}/> Adicionar novo agregado</button></div>:<div className="aggregation-monthly-actions"><label className="aggregation-competence"><CalendarDays size={16}/><input type="month" disabled={syncing||fleetSyncing} value={competence} onChange={e=>{setCompetence(e.target.value);setDifferenceOnly(false)}}/></label><button className="button secondary" title="Exporta CPF e Valor a receber dos filtros atuais, separados por empresa." disabled={exporting||!filteredMonthlyBase.length} onClick={()=>void exportPayment()}><FileSpreadsheet size={16}/>{exporting?"Gerando...":"Relatório de pagamento"}</button><button className="button secondary" disabled={syncing||fleetSyncing||!fleetConfigured} onClick={()=>void syncFleet()}><CarFront className={fleetSyncing?"spin":""} size={16}/>{fleetSyncing?"Consultando Frota...":"Atualizar Frota"}</button><button className="button primary" disabled={syncing||fleetSyncing} onClick={()=>void sync()}><RefreshCw className={syncing?"spin":""} size={16}/>{syncing?"Consultando...":"Atualizar pelo QuarkRH"}</button></div>}
       </div>
-      {tab==="base"?<BaseTable rows={filtered} loading={loading} maskCpf={app.settings.maskCpf} onEdit={startEdit}/>:<MonthlyTable rows={filteredMonthly} maskCpf={app.settings.maskCpf} differenceOnly={effectiveDifferenceOnly} competence={competence} onSaved={reloadMonthly}/>}
+      {tab==="base"?<BaseTable rows={filtered} loading={loading} maskCpf={app.settings.maskCpf} onEdit={startEdit}/>:<MonthlyTable key={`${competence}:${syncRevision}`} rows={filteredMonthly} maskCpf={app.settings.maskCpf} differenceOnly={effectiveDifferenceOnly} competence={competence} onSaved={reloadMonthly}/>}
     </section>
     {tab==="monthly"&&<div className="inline-warning aggregation-rule"><CalendarDays/><span><strong>Regra de cálculo</strong> Divisor fixo de 30 dias. Faltas, atestados, férias e manutenção de veículo são somados; até 3 dias não há desconto. A partir de 4 dias, todos os dias acumulados são descontados. Admissões e desligamentos continuam proporcionais ao período trabalhado.</span></div>}
     </>}
@@ -212,22 +234,33 @@ function MonthlyTable({rows,maskCpf,differenceOnly,competence,onSaved}:{rows:Agg
   const app=useApp();
   const[drafts,setDrafts]=useState<Record<string,string>>({});
   const[savingId,setSavingId]=useState("");
-  const saveMaintenance=async(item:AggregationMonthlyRecord)=>{
+  const saveMaintenance=async(item:AggregationMonthlyRecord,force=false)=>{
     const raw=drafts[item.id]??String(item.maintenanceVehicleDays);
     const days=Math.max(0,Math.min(30,Math.trunc(Number(raw)||0)));
     setDrafts(current=>({...current,[item.id]:String(days)}));
-    if(days===item.maintenanceVehicleDays)return;
+    if(days===item.maintenanceVehicleDays&&!force)return;
     setSavingId(item.id);
     try{
       await saveAggregationMaintenance(competence,item.aggregationId,days);
       await onSaved();
+      setDrafts(current=>{const next={...current};delete next[item.id];return next});
       app.toast("success","Manutenção de veículo atualizada",`${item.employeeName}: ${days} dia(s).`);
     }catch(e){
       setDrafts(current=>({...current,[item.id]:String(item.maintenanceVehicleDays)}));
       app.toast("error","Não foi possível salvar a manutenção do veículo",e instanceof Error?e.message:undefined);
     }finally{setSavingId("")}
   };
+  const useAutomatic=async(item:AggregationMonthlyRecord)=>{
+    setSavingId(item.id);
+    try{
+      await useFleetMaintenance(competence,item.aggregationId);
+      await onSaved();
+      setDrafts(current=>{const next={...current};delete next[item.id];return next});
+      app.toast("success","Dias automáticos da Frota selecionados",item.employeeName);
+    }catch(e){app.toast("error","Não foi possível usar os dias da Frota",e instanceof Error?e.message:undefined)}
+    finally{setSavingId("")}
+  };
   return <div className="table-scroll"><table className="data-table aggregation-table monthly"><thead><tr><th>Data</th><th>Colaborador</th><th>CPF</th><th className="right">Valor base</th><th className="center">Faltas</th><th className="center">Atestado</th><th className="center">Férias</th><th className="center">Manutenção veículo</th><th className="right">Valor a receber</th><th>Status</th></tr></thead><tbody>
-    {rows.map(item=><tr className={hasPaymentDifference(item)?"row-warning":undefined} key={item.id}><td>{item.competence.split("-").reverse().join("/")}</td><td><strong>{item.employeeName}</strong><small>{item.company} · {item.city}</small></td><td className="mono">{formatCpf(item.cpf,maskCpf)}</td><td className="right">{formatMoney(item.baseValue)}</td><td className="center">{item.absenceDays}</td><td className="center">{item.medicalDays}</td><td className="center">{item.vacationDays}</td><td className="center"><input className="maintenance-days-input" type="number" min={0} max={30} step={1} disabled={savingId===item.id} value={drafts[item.id]??String(item.maintenanceVehicleDays)} onChange={e=>setDrafts(current=>({...current,[item.id]:e.target.value.replace(/[^0-9]/g,"")}))} onBlur={()=>void saveMaintenance(item)} onKeyDown={e=>{if(e.key==="Enter")e.currentTarget.blur()}} aria-label={`Manutenção de veículo de ${item.employeeName}`}/></td><td className="right"><strong>{formatMoney(item.amountDue)}</strong><small>{item.payableDays} dia(s) pagos</small></td><td><StatusBadge status={item.employmentStatus==="NAO_LOCALIZADO"?"NÃO LOCALIZADO":item.employmentStatus}/></td></tr>)}
+    {rows.map(item=><tr className={hasPaymentDifference(item)?"row-warning":undefined} key={item.id}><td>{item.competence.split("-").reverse().join("/")}</td><td><strong>{item.employeeName}</strong><small>{item.company} · {item.city}</small></td><td className="mono">{formatCpf(item.cpf,maskCpf)}</td><td className="right">{formatMoney(item.baseValue)}</td><td className="center">{item.absenceDays}</td><td className="center">{item.medicalDays}</td><td className="center">{item.vacationDays}</td><td className="center"><input className="maintenance-days-input" type="number" min={0} max={30} step={1} disabled={Boolean(savingId)} value={drafts[item.id]??String(item.maintenanceVehicleDays)} onChange={e=>setDrafts(current=>({...current,[item.id]:e.target.value.replace(/[^0-9]/g,"")}))} onBlur={()=>void saveMaintenance(item)} onKeyDown={e=>{if(e.key==="Enter")e.currentTarget.blur()}} aria-label={`Manutenção de veículo de ${item.employeeName}`}/><div className="fleet-maintenance-source"><small>{item.maintenanceIsManual?"Ajuste manual":item.fleetMaintenanceDays!=null?"Automático · Frota":"Sem ajuste"}</small>{item.fleetMaintenanceDays!=null&&<small title={item.fleetSyncedAt?`Consulta em ${new Date(item.fleetSyncedAt).toLocaleString("pt-BR")}`:undefined}>Frota: {item.fleetMaintenanceDays} dia(s)</small>}{item.maintenanceIsManual&&item.fleetMaintenanceDays!=null?<button className="fleet-maintenance-action" disabled={Boolean(savingId)} onClick={()=>void useAutomatic(item)}>Usar Frota</button>:!item.maintenanceIsManual&&<button className="fleet-maintenance-action" disabled={Boolean(savingId)} onClick={()=>void saveMaintenance(item,true)}>Fixar manualmente</button>}</div></td><td className="right"><strong>{formatMoney(item.amountDue)}</strong><small>{item.payableDays} dia(s) pagos</small></td><td><StatusBadge status={item.employmentStatus==="NAO_LOCALIZADO"?"NÃO LOCALIZADO":item.employmentStatus}/></td></tr>)}
   </tbody></table>{!rows.length&&<div className="table-empty">{differenceOnly?"Nenhum colaborador com diferença entre Valor base e Valor a receber nos filtros atuais.":"Nenhum fechamento salvo para esta competência. Clique em “Atualizar pelo QuarkRH”."}</div>}</div>;
 }
