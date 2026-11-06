@@ -8,12 +8,14 @@ Conta-se a diferença entre as datas locais da retirada e da devolução, com m�
 
 ## Instalação
 
-1. Aplicar `supabase/migrations/20261106195751_frota_manutencao_agregamento.sql` no banco do RH.
+1. Aplicar `supabase/migrations/20261106195751_frota_manutencao_agregamento.sql` e `20261106203110_proteger_competencia_frota.sql` no banco do RH.
 2. Um administrador do banco configura `rh_frota_private.config.publishable_key` com a chave pública do Frota. O token restrito é gerado dentro do banco e nunca deve ser colocado em código, navegador ou repositório.
 3. No banco do Frota, aplicar a migration correspondente e configurar em `frota_rh_private.integration_auth` somente o SHA-256 do token do RH. O arquivo de instalação entregue ao responsável já contém esse hash.
 4. Validar a consulta entre os bancos e ativar `rh_frota_private.config.enabled`. Fazer a primeira atualização pelo botão do RH, conferindo o resultado antes de fechar o pagamento.
 
 A conexão usa HTTPS com endereço fixo, chave pública no cabeçalho `apikey` e token restrito em `X-Frota-Integration-Key`. O navegador chama RPCs do seu próprio RH autenticado. Somente perfis RH ou administrador ativos podem sincronizar ou trocar a origem dos dias. Falhas de rede ou de validação não apagam dias já salvos.
+
+As gravações no fechamento compartilham uma trava por competência. Isso evita que uma recriação pelo QuarkRH use dias antigos durante uma consulta simultânea da Frota. Uma segunda consulta da Frota informa que já existe atualização em andamento.
 
 ## Validação realizada
 
