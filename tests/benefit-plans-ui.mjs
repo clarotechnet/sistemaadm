@@ -84,7 +84,7 @@ async function createFixture(viewport, hasPayroll = true, baseMode = "normal", o
 try {
   const { context, page } = await createFixture({ width: 1366, height: 768 });
   const modules = page.locator(".benefit-module-tabs");
-  assert.deepEqual(await modules.locator("strong").allTextContents(), ["Agregamento", "Vale Transporte", "Plano de Saúde", "Plano Odontológico"]);
+  assert.deepEqual(await modules.locator("strong").allTextContents(), ["Agregamento", "Vale Alimentação", "Plano de Saúde", "Plano Odontológico"]);
   await modules.getByRole("button", { name: /Plano de Saúde/ }).click();
   await page.locator(".benefit-inner-tabs").getByRole("button", { name: "Conferência mensal", exact: true }).click();
   await page.getByRole("heading", { name: "Resultado · Plano de Saúde", exact: true }).waitFor();

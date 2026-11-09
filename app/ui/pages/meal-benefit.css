@@ -1,0 +1,71 @@
+.meal-period-panel{padding:20px}
+.meal-period-panel h3{margin:0 0 6px;font-size:16px}
+.meal-period-panel p,.meal-help{font-size:12px;line-height:1.65;color:var(--muted)}
+.meal-period-fields{display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin:18px 0 12px}
+.meal-period-fields .field{margin:0;min-width:170px}
+.meal-period-fields input{min-height:42px}
+.meal-benefit-month{display:flex;align-items:center;gap:9px;min-height:42px;padding:8px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px}
+.meal-benefit-month span{display:grid;gap:4px;font-size:11px}
+.meal-benefit-month strong{font-size:15px;color:var(--primary)}
+.meal-pending{display:flex;align-items:flex-start;gap:12px;padding:16px;border:1px solid #d69b3d70;background:#b87b0810;border-radius:10px}
+.meal-pending>svg{flex-shrink:0;color:#c58a24}
+.meal-pending strong{font-size:13px}
+.meal-pending p{font-size:12px;line-height:1.7;margin:6px 0 0;color:var(--muted)}
+.meal-error{padding:14px;color:var(--primary);border:1px solid var(--primary);border-radius:8px;font-size:12px;line-height:1.6}
+.meal-sync-info{padding:16px;font-size:12px;line-height:1.7}
+.meal-sync-info p{margin:5px 0}
+.meal-sync-info .button{margin-top:10px}
+.meal-warning{color:#b78631}
+.meal-benefit{color-scheme:light}
+
+:root[data-theme="dark"] .meal-benefit{color-scheme:dark}
+
+.meal-toolbar{padding:16px;display:grid;gap:14px}
+
+.meal-filter-grid{display:grid;grid-template-columns:minmax(230px,1.5fr) minmax(190px,1.1fr) minmax(140px,.8fr) minmax(160px,.9fr);gap:12px;align-items:end;min-width:0}
+
+.meal-filter{display:grid;gap:7px;min-width:0;margin:0}
+
+.meal-filter>span:first-child{font-size:11px;font-weight:600;color:var(--muted)}
+
+.meal-filter .search-box{width:100%;min-width:0;height:40px;margin:0;background:var(--bg);border:1px solid var(--border);color:var(--text)}
+
+.meal-filter .search-box svg{flex-shrink:0}
+
+.meal-filter .search-box input{width:100%;min-width:0;color:var(--text)}
+
+.meal-export-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+
+.meal-export-actions .button{min-height:40px;white-space:nowrap}
+
+@media(max-width:1100px){.meal-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+@media(max-width:600px){.meal-filter-grid{grid-template-columns:minmax(0,1fr)}
+.meal-export-actions .button{flex:1 1 170px}
+}
+
+.meal-table-note{padding:0 16px 12px;margin:0}
+.meal-table{min-width:1550px}
+.meal-table td{vertical-align:top;white-space:normal}
+.meal-table td:first-child{min-width:240px}
+.meal-table th:nth-child(3),.meal-table td:nth-child(3),.meal-table td:nth-child(4){min-width:170px}
+.meal-table td small{display:block;max-width:260px;white-space:normal;line-height:1.5;margin-top:5px;font-size:10px;color:var(--muted)}
+.meal-table td:last-child{min-width:230px}
+.meal-pending-value{font-size:11px;color:#b78631;font-weight:700}
+.meal-muted{color:var(--muted)}
+.meal-benefit .table-footer{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;font-size:12px}
+.meal-benefit .table-footer>div{display:flex;gap:7px}
+.meal-history>.button{margin:14px}
+.meal-history table{min-width:900px}
+.meal-history td small{display:block;max-width:280px;font-size:11px;white-space:normal}
+.meal-events-modal{width:min(1000px,calc(100vw - 32px));max-height:85vh;overflow:auto;text-align:left}
+.meal-events-modal .section-header{padding:0 0 15px}
+.meal-events-modal p{line-height:1.6}
+.meal-events-modal table{min-width:650px}
+.meal-benefit [role=tab]{display:inline-flex;align-items:center;gap:7px}
+@media(max-width:760px){.meal-period-fields{align-items:stretch}
+.meal-period-fields .field,.meal-period-fields>.button,.meal-benefit-month{flex:1 1 100%;width:100%}
+.meal-benefit .metrics-grid{grid-template-columns:1fr 1fr}
+.meal-pending{padding:14px}
+}

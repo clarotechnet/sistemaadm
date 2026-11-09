@@ -1,0 +1,21 @@
+.multi-filter{display:grid;gap:7px;min-width:0}
+.multi-filter>span{font-size:11px;font-weight:600;color:var(--muted)}
+.multi-filter-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-width:0;height:40px;padding:0 10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:7px;font-size:12px;text-align:left}
+.multi-filter-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.multi-filter-trigger svg{flex-shrink:0}
+.multi-filter-trigger:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.multi-filter-trigger[aria-expanded=true]{border-color:var(--primary)}
+.multi-filter-popup{position:fixed;z-index:1200;display:flex;flex-direction:column;overflow:hidden;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 32px #0003;font-size:12px;color-scheme:light}
+:root[data-theme="dark"] .multi-filter-popup{color-scheme:dark}
+.multi-filter-header,.multi-filter-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;flex-shrink:0}
+.multi-filter-header{border-bottom:1px solid var(--border)}
+.multi-filter-header strong{font-size:12px}
+.multi-filter-header button{padding:4px;border:0;background:transparent;color:var(--text);font-size:11px;text-decoration:underline;text-underline-offset:3px}
+.multi-filter-options{padding:6px;overflow-y:auto;overscroll-behavior:contain;min-height:0}
+.multi-filter-option{display:flex;align-items:flex-start;gap:10px;min-height:38px;padding:10px 8px;margin:0;border-radius:5px;cursor:pointer;line-height:1.5}
+.multi-filter-option:hover,.multi-filter-option:focus-within{background:var(--bg)}
+.multi-filter-option input[type="checkbox"]{width:16px;height:16px;min-height:0;margin:1px 0 0;flex-shrink:0;accent-color:var(--primary)}
+.multi-filter-option span{overflow-wrap:anywhere}
+.multi-filter-footer{border-top:1px solid var(--border);font-size:11px;color:var(--muted)}
+.multi-filter-footer button{padding:7px 12px;background:var(--primary);color:#fff;border:1px solid var(--primary);border-radius:6px;font-size:12px;font-weight:600}
+.multi-filter-popup button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}

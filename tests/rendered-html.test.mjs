@@ -68,7 +68,7 @@ test("PDF editor selects original text precisely and exposes close/remove contro
   assert.match(toolsPage, /PdfEditor onClose/);
 });
 
-test("health and dental comparisons live in Benefits after transport and reuse the payroll month", async () => {
+test("health and dental comparisons live in Benefits after meals and reuse the payroll month", async () => {
   const [payroll, benefits, plan, app] = await Promise.all([
     readFile(new URL("../app/ui/pages/PayrollPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/ui/pages/BenefitsPage.tsx", import.meta.url), "utf8"),
@@ -82,7 +82,7 @@ test("health and dental comparisons live in Benefits after transport and reuse t
   assert.doesNotMatch(payroll, /<PlanComparison|id:"health"|id:"dental"/);
   const moduleTabs = benefits.match(/<div className="benefit-module-tabs">([\s\S]*?)<\/div>/)?.[1] ?? "";
   const moduleLabels = [...moduleTabs.matchAll(/<strong>([^<]+)<\/strong><small>/g)].map(match => match[1]);
-  assert.deepEqual(moduleLabels, ["Agregamento", "Vale Transporte", "Plano de Saúde", "Plano Odontológico"]);
+  assert.deepEqual(moduleLabels, ["Agregamento", "Vale Alimentação", "Plano de Saúde", "Plano Odontológico"]);
   assert.match(benefits, /<PlanBenefitModule key=\{tool\} kind=\{tool\}/);
   assert.match(benefits, /app\.selectCompetence\(event\.target\.value\)/);
   assert.match(plan, /app\.savedHealth:app\.savedDental/);

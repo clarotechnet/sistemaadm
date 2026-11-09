@@ -10,7 +10,7 @@
     "build": "vinext build",
     "build:hostinger": "vite build --config vite.hostinger.config.ts",
     "start": "vinext start",
-    "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/password-recovery.test.ts tests/security-hardening.test.mjs tests/production-config.test.mjs tests/core.test.ts tests/pdf-tools.test.ts tests/payroll-sources.test.ts tests/payroll-pdf.test.ts tests/payroll-overtime.test.ts tests/quark-employee-dates.test.ts tests/quark-employee-registration.test.ts tests/benefit-unique-event-days.test.mjs tests/benefit-plan-base.test.ts tests/employee-movements.test.ts tests/document-bulk-matching.test.ts tests/payroll-audit.test.ts",
+    "test": "npm run build && node --import tsx --test tests/rendered-html.test.mjs tests/password-recovery.test.ts tests/security-hardening.test.mjs tests/production-config.test.mjs tests/core.test.ts tests/pdf-tools.test.ts tests/payroll-sources.test.ts tests/payroll-pdf.test.ts tests/payroll-overtime.test.ts tests/quark-employee-dates.test.ts tests/quark-employee-registration.test.ts tests/benefit-unique-event-days.test.mjs tests/benefit-plan-base.test.ts tests/benefit-meal.test.ts tests/benefit-meal-edge.test.mjs tests/employee-movements.test.ts tests/document-bulk-matching.test.ts tests/payroll-audit.test.ts",
     "test:hostinger": "npm run build:hostinger && node --test tests/hostinger-build.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
@@ -22,7 +22,9 @@
     "test:pdf-ui": "node tests/pdf-tools-ui.mjs",
     "test:payroll-ui": "node --import tsx tests/payroll-sources-ui.mjs",
     "test:overtime-ui": "node --import tsx tests/payroll-overtime-ui.mjs",
-    "test:auth-ui": "node tests/password-recovery-ui.mjs"
+    "test:auth-ui": "node tests/password-recovery-ui.mjs",
+    "test:meal-ui": "node --import tsx tests/benefit-meal-ui.mjs",
+    "test:meal-db": "node tests/benefit-meal-db.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
