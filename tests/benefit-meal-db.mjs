@@ -57,6 +57,105 @@ try {
     await sql.unsafe("reset role; set local role anon");
     await checkpoint("anon_read", () => sql`select * from public.benefit_meal_rows`, /permission denied/);
     await sql.unsafe("reset role");
+    const beforeMigration = await sql`select to_jsonb(r) snapshot from public.benefit_meal_rows r order by run_id`;
+    const ratesMigration = await readFile("supabase/migrations/20261110132307_benefit_meal_daily_rates.sql", "utf8");
+    await sql.unsafe(ratesMigration);
+    const afterMigration = await sql`select to_jsonb(r)-array['calculation_version','calculation_status','calculation_notes'] snapshot from public.benefit_meal_rows r order by run_id`;
+    assert.deepEqual(afterMigration, beforeMigration);
+    const [functionBody] = await sql`select prosrc,prosecdef from pg_proc where oid='public.complete_benefit_meal_calculated_run(uuid,uuid,jsonb,jsonb,jsonb,jsonb)'::regprocedure`;
+    assert.equal(functionBody.prosecdef, false);
+    assert.equal(functionBody.prosrc.replace(/\s+/g, " ").trim(), ratesMigration.split("as $$")[1].split("$$;")[0].replace(/\s+/g, " ").trim());
+    await sql.unsafe("set local role authenticated");
+    await checkpoint("human_calculation_rpc", () => sql`select public.complete_benefit_meal_calculated_run(${first},${actor},'[]','[]','[]','[]')`, /permission denied/);
+    await sql.unsafe("reset role; set local role anon");
+    await checkpoint("anon_calculation_rpc", () => sql`select public.complete_benefit_meal_calculated_run(${first},${actor},'[]','[]','[]','[]')`, /permission denied/);
+    await sql.unsafe("reset role; set local role service_role");
+    const financial = { ...row, city: "RECIFE", department: "RH", job_title: "Analista de RH", rate_group: "RECIFE_ESTOQUE_RH", planned_work_days: 22, payable_days: 21, daily_value: 23, amount_due: 483, calculation_version: 1, calculation_status: "READY", calculation_notes: [] };
+    const calculate = async (id, data = financial) => sql`select public.complete_benefit_meal_calculated_run(${id},${actor},${JSON.stringify([data])}::text::jsonb,${JSON.stringify([event])}::text::jsonb,'[]'::jsonb,'[]'::jsonb)`;
+    const fixedRun = await beginRun(); await calculate(fixedRun);
+    const [savedMoney] = await sql`select daily_value,planned_work_days,payable_days,amount_due,calculation_status from public.benefit_meal_rows where run_id=${fixedRun}`;
+    assert.equal(Number(savedMoney.daily_value), 23); assert.equal(Number(savedMoney.planned_work_days), 22);
+    assert.equal(Number(savedMoney.payable_days), 21); assert.equal(Number(savedMoney.amount_due), 483); assert.equal(savedMoney.calculation_status, "READY");
+    await checkpoint("immutable_money", () => calculate(fixedRun), /já concluída/);
+    const legacy = (await sql`select daily_value,amount_due,calculation_version from public.benefit_meal_rows where run_id=${first}`)[0];
+    assert.deepEqual(legacy, { daily_value: null, amount_due: null, calculation_version: null });
+    const dailyRun = await beginRun();
+    await calculate(dailyRun, { ...financial, city: "NATAL", rate_group: "TECNICO", daily_value: 25, planned_work_days: null, payable_days: null, amount_due: null, calculation_status: "PENDING", calculation_notes: ["Dias a definir"] });
+    assert.equal(Number((await sql`select daily_value from public.benefit_meal_rows where run_id=${dailyRun}`)[0].daily_value), 25);
+    passed.push("approved rates and fixed Recife base persist numerically; old snapshots and daily groups remain without guessed payments");
+    const invalidRun = await beginRun();
+    for (const [name, data] of [
+      ["wrong_rate", { ...financial, daily_value: 99 }],
+      ["wrong_amount", { ...financial, amount_due: 999 }],
+      ["wrong_base", { ...financial, planned_work_days: 23 }],
+      ["missing_overlap", { ...financial, overlap_days: null }],
+      ["missing_counts", { ...financial, absence_days: null }],
+      ["inactive_payment", { ...financial, employment_status: "DESLIGADO" }],
+    ]) await checkpoint(name, () => calculate(invalidRun, data), /check constraint/);
+    assert.equal((await sql`select count(*)::int n from public.benefit_meal_rows where run_id=${invalidRun}`)[0].n, 0);
+    assert.equal((await sql`select status from public.benefit_meal_runs where id=${invalidRun}`)[0].status, "RUNNING");
+    await sql`update public.benefit_meal_runs set queried_through='2026-11-09' where id=${invalidRun}`;
+    await checkpoint("open_period_payment", () => calculate(invalidRun), /Período aberto/);
+    await sql`update public.benefit_meal_runs set status='ERROR' where id=${invalidRun}`;
+    passed.push("forged rates, amounts, days, missing counts, inactive eligibility and open-period payments fail atomically");
+    await sql.unsafe("reset role");
+    const previousSnapshots = await sql`select to_jsonb(r) snapshot from public.benefit_meal_rows r order by run_id`;
+    await sql.unsafe(await readFile("supabase/migrations/20261110143715_benefit_meal_editable_rates.sql", "utf8"));
+    assert.deepEqual(await sql`select to_jsonb(r)-'rate_version_id' snapshot from public.benefit_meal_rows r order by run_id`, previousSnapshots);
+    await sql.unsafe("set local role service_role");
+    const getRates = async (month) => sql`select * from public.get_benefit_meal_rates(${month + "-01"}::date)`;
+    const chooseRate = (rates, city, group) => rates.find(item => item.city === city && item.rate_group === group);
+    const saveRate = (city, month, changes) => sql`select public.save_benefit_meal_rates(${actor},${city},${month + "-01"}::date,${JSON.stringify(changes)}::text::jsonb,'Reajuste de teste')`;
+    const initialRates = await getRates('2026-11'); assert.equal(initialRates.length, 13);
+    assert.equal((await getRates('2026-10')).length, 0);
+    const natalSeed = chooseRate(initialRates, 'NATAL', 'TECNICO');
+    await saveRate('NATAL', '2027-01', [{group:'TECNICO',dailyCents:2700,fixedDays:null,expectedId:natalSeed.id}]);
+    assert.equal(Number(chooseRate(await getRates('2026-12'), 'NATAL', 'TECNICO').daily_value), 25);
+    const january = await getRates('2027-01');
+    assert.equal(Number(chooseRate(january, 'NATAL', 'TECNICO').daily_value), 27);
+    assert.equal(Number(chooseRate(january, 'FORTALEZA', 'TECNICO').daily_value), 25);
+    assert.equal(Number(chooseRate(january, 'MOSSORO', 'TECNICO').daily_value), 25);
+    await checkpoint('stale_policy', () => saveRate('NATAL','2027-01',[{group:'TECNICO',dailyCents:2800,fixedDays:null,expectedId:natalSeed.id}]), /mudaram durante/);
+    const natalCurrent = chooseRate(january,'NATAL','TECNICO'), generalSeed = chooseRate(initialRates,'NATAL','GERAL');
+    const beforeInvalid = (await sql`select count(*)::int n from public.benefit_meal_rate_versions`)[0].n;
+    await checkpoint('atomic_policy_batch', () => saveRate('NATAL','2028-01',[
+      {group:'TECNICO',dailyCents:3000,fixedDays:null,expectedId:natalCurrent.id},
+      {group:'GERAL',dailyCents:2200,fixedDays:22,expectedId:generalSeed.id},
+    ]), /Dias dos demais grupos/);
+    assert.equal((await sql`select count(*)::int n from public.benefit_meal_rate_versions`)[0].n,beforeInvalid);
+    passed.push('city-specific, effective-month versions preserve prior months and reject stale or partially invalid edits');
+    const recifeSeed = chooseRate(initialRates,'RECIFE','RECIFE_ESTOQUE_RH');
+    await saveRate('RECIFE','2026-12',[{group:'RECIFE_ESTOQUE_RH',dailyCents:2500,fixedDays:24,expectedId:recifeSeed.id}]);
+    const frozenRates = await getRates('2026-12'), frozenPolicy = chooseRate(frozenRates,'RECIFE','RECIFE_ESTOQUE_RH');
+    const versioned = await beginRun(); await sql`update public.benefit_meal_runs set rate_version_ids=${frozenRates.map(item=>item.id)}::uuid[] where id=${versioned}`;
+    await saveRate('RECIFE','2026-12',[{group:'RECIFE_ESTOQUE_RH',dailyCents:2600,fixedDays:24,expectedId:frozenPolicy.id}]);
+    const versionedRow = {...financial,calculation_version:2,rate_version_id:frozenPolicy.id,daily_value:25,planned_work_days:24,payable_days:23,amount_due:575};
+    const completeV2 = (id,data=versionedRow) => sql`select public.complete_benefit_meal_versioned_run(${id},${actor},${JSON.stringify([data])}::text::jsonb,${JSON.stringify([event])}::text::jsonb,'[]','[]')`;
+    await completeV2(versioned);
+    assert.equal(Number((await sql`select amount_due from public.benefit_meal_rows where run_id=${versioned}`)[0].amount_due),575);
+    assert.equal(Number(chooseRate(await getRates('2026-12'),'RECIFE','RECIFE_ESTOQUE_RH').daily_value),26);
+    assert.equal(Number((await sql`select amount_due from public.benefit_meal_rows where run_id=${fixedRun}`)[0].amount_due),483);
+    const invalidV2 = await beginRun(); await sql`update public.benefit_meal_runs set rate_version_ids=${frozenRates.map(item=>item.id)}::uuid[] where id=${invalidV2}`;
+    await checkpoint('wrong_policy_money',()=>completeV2(invalidV2,{...versionedRow,daily_value:26}),/não correspondem/);
+    await checkpoint('wrong_policy_city',()=>completeV2(invalidV2,{...versionedRow,city:'NATAL'}),/não correspondem/);
+    await checkpoint('wrong_policy_amount',()=>completeV2(invalidV2,{...versionedRow,amount_due:999}),/check constraint/);
+    assert.equal((await sql`select count(*)::int n from public.benefit_meal_rows where run_id=${invalidV2}`)[0].n,0);
+    await checkpoint('outdated_edge',()=>calculate(invalidV2),/Atualize a função/);
+    await sql`update public.benefit_meal_runs set status='ERROR' where id=${invalidV2}`;
+    passed.push('queries freeze their exact rate IDs, accept edited fixed bases, preserve saved totals and reject outdated hardcoded calculations');
+    await checkpoint('service_edit_history',()=>sql`update public.benefit_meal_rate_versions set daily_value=1`,/permission denied/);
+    await sql.unsafe('reset role; set local role authenticated');
+    await sql`select set_config('request.jwt.claim.sub',${viewer},true)`;
+    assert.equal((await sql`select count(*)::int n from public.benefit_meal_rate_versions`)[0].n,0);
+    assert.equal((await getRates('2026-12')).length,0);
+    await sql`select set_config('request.jwt.claim.sub',${actor},true)`;
+    assert.equal((await getRates('2026-12')).length,13);
+    await checkpoint('browser_write_rates',()=>saveRate('NATAL','2026-12',[]),/permission denied/);
+    await checkpoint('browser_complete_v2',()=>completeV2(versioned),/permission denied/);
+    await sql.unsafe('reset role; set local role anon');
+    await checkpoint('anon_rates',()=>getRates('2026-12'),/permission denied/);
+    await sql.unsafe('reset role');
+    passed.push('rate history is append-only, RH-only to read and service-only to change; no anonymous access');
     await sql`delete from public.employees where id=${employee}`;
     const [historical] = await sql`select employee_name,employee_id,snapshot_employee_id from public.benefit_meal_rows where run_id=${first}`;
     assert.equal(historical.employee_name, "Nome no snapshot"); assert.equal(historical.employee_id, null); assert.equal(historical.snapshot_employee_id, employee);

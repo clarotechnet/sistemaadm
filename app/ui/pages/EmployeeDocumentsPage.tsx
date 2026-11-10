@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
-import { Archive, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, FileText, Folder, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Upload, Users } from "lucide-react";
+import { Archive, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, FileText, Folder, Link2, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Upload, Users } from "lucide-react";
 import type { DocumentCategory, Employee, EmployeeDocument, EmployeeDocumentStatus, EmployeeStatus, EmployeeSyncRun } from "../../../src/types";
 import { formatCpf } from "../../../src/utils/cpf";
 import { downloadFile, formatFileSize } from "../../../src/utils/download";
@@ -26,6 +26,7 @@ import { useApp } from "../state/AppContext";
 import { EmployeeDocumentBulkUploadModal, prepareBulkFiles, type BulkUploadForm } from "./EmployeeDocumentBulkUploadModal";
 import { normalizeDocumentMatchText } from "../../../src/modules/employees/document-matching";
 import { EmployeeMovementsPanel } from "./EmployeeMovementsPanel";
+import { QuarkMappingModal } from "./QuarkMappingModal";
 
 type CenterView = "documents" | "employees" | "movements" | "trash";
 type EmployeeStatusFilter = "ALL" | EmployeeStatus;
@@ -73,6 +74,7 @@ export function EmployeeDocumentsPage() {
   const [loadingDocuments, setLoadingDocuments] = useState(true);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [employeeOpen, setEmployeeOpen] = useState(false);
+  const [mappingOpen, setMappingOpen] = useState(false);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [employeeForm, setEmployeeForm] = useState<EmployeeForm>(emptyEmployeeForm);
   const [savingEmployee, setSavingEmployee] = useState(false);
@@ -194,7 +196,7 @@ export function EmployeeDocumentsPage() {
       const result = await syncEmployeesFromQuark();
       await loadBase();
       app.addAudit({ operation: "Sincronizou funcionários do QuarkRH", module: "Documentos", result: `${result.received} recebidos · ${result.created} novos · ${result.updated} atualizados · ${result.linked} vinculados`, status: result.skipped ? "AVISO" : "SUCESSO", processedCount: result.received, missingCount: result.skipped });
-      app.toast("success", "Funcionários sincronizados com o QuarkRH", `${result.created} novo(s), ${result.updated} atualizado(s) e ${result.linked} cadastro(s) existente(s) vinculado(s).`);
+      app.toast("success", "Funcionários sincronizados com o QuarkRH", `${result.created} novo(s), ${result.updated} atualizado(s), ${result.unmapped ?? 0} com vínculo pendente e ${result.conflicts ?? 0} CPF(s) conflitante(s) preservados.`);
       if (result.skipped) app.toast("warning", `${result.skipped} registro(s) ignorado(s)`, "Registros sem ID, nome ou CPF válido não foram importados.");
     } catch (caught) {
       app.toast("error", "Não foi possível sincronizar o QuarkRH", caught instanceof Error ? caught.message : "Verifique a configuração da integração.");
@@ -419,9 +421,11 @@ export function EmployeeDocumentsPage() {
           <p>Cadastros do QuarkRH são atualizados automaticamente; funcionários manuais continuam disponíveis.</p>
           {employeeSync && <small className={`employee-sync-meta ${employeeSync.status.toLowerCase()}`}>
             Última sincronização: {displayDate(employeeSync.completedAt ?? employeeSync.startedAt)} · {employeeSync.receivedCount} recebidos · {employeeSync.createdCount} novos · {employeeSync.updatedCount} atualizados · {employeeSync.linkedCount} vinculados
+            {Boolean(employeeSync.unmappedCount) && ` · ${employeeSync.unmappedCount} com mapeamento pendente`}{Boolean(employeeSync.conflictsCount) && ` · ${employeeSync.conflictsCount} CPF(s) conflitantes preservados`}
           </small>}
         </div>
         {canManage && <div className="employee-sync-actions">
+          <button className="button secondary" disabled={syncingEmployees} onClick={() => setMappingOpen(true)}><Link2 /> Mapear setores e unidades</button>
           <button className="button secondary" disabled={syncingEmployees} onClick={() => void syncQuarkEmployees()}><RefreshCw className={syncingEmployees ? "spin" : ""} /> {syncingEmployees ? "Sincronizando..." : "Sincronizar QuarkRH"}</button>
           <button className="button primary" disabled={syncingEmployees} onClick={() => openEmployee()}><Plus /> Cadastrar manualmente</button>
         </div>}
@@ -439,13 +443,14 @@ export function EmployeeDocumentsPage() {
       </div>
       <div className="employee-filter-summary"><span>Exibindo <strong>{visibleEmployees.length}</strong> de {employees.length} funcionário(s)</span>{employeeStatusFilter !== "ALL" && <button type="button" onClick={() => setEmployeeStatusFilter("ALL")}>Limpar filtro</button>}</div>
       {employees.length ? <div className="table-scroll"><table className="data-table employees-table">
-        <thead><tr><th>Funcionário</th><th>CPF</th><th>Setor / Equipe</th><th>Cargo</th><th>Origem</th><th>Status</th>{canManage && <th className="right">Ações</th>}</tr></thead>
+        <thead><tr><th>Funcionário</th><th>CPF</th><th>Setor / Equipe</th><th>Unidade do RH</th><th>Cargo</th><th>Origem</th><th>Status</th>{canManage && <th className="right">Ações</th>}</tr></thead>
         <tbody>{visibleEmployees.map(employee => <tr key={employee.id}>
           <td><strong>{employee.name}</strong>{employee.externalUnitName && <small className="block-muted">{employee.externalUnitName}</small>}</td>
           <td className="mono">{formatCpf(employee.cpf, app.settings.maskCpf)}</td>
           <td>{employee.department || "—"}</td>
+          <td>{employee.unitName || (employee.source === "QUARK" ? "Sem vínculo" : "—")}{employee.city && employee.city !== employee.unitName && <small className="block-muted">{employee.city}</small>}</td>
           <td>{employee.jobTitle || "—"}</td>
-          <td><span className={`employee-source-badge ${employee.source.toLowerCase()}`}>{employee.source === "QUARK" ? "QuarkRH" : "Manual"}</span></td>
+          <td><span className={`employee-source-badge ${employee.source.toLowerCase()}`}>{employee.source === "QUARK" ? "QuarkRH" : "Manual"}</span>{employee.mappingPending && <small className="block-muted">Mapeamento pendente</small>}</td>
           <td><StatusBadge status={employee.status} /></td>
           {canManage && <td><div className="row-actions document-actions">{employee.source === "MANUAL" ? <button title="Editar funcionário" onClick={() => openEmployee(employee)}><Pencil /></button> : <span className="employee-managed-label" title="Nome, CPF, setor, cargo e status são atualizados pelo QuarkRH">Sincronizado</span>}</div></td>}
         </tr>)}</tbody>
@@ -457,6 +462,7 @@ export function EmployeeDocumentsPage() {
     {view === "trash" && canManage && <section className="surface table-surface documents-surface"><div className="section-header"><div><h3>Lixeira de documentos</h3><p>RH pode restaurar arquivos. Apenas Administradores podem excluí-los definitivamente.</p></div><span>{visibleTrash.length} item(ns)</span></div>{documentTable(visibleTrash, true)}</section>}
 
     {employeeOpen && <EmployeeModal form={employeeForm} setForm={setEmployeeForm} editing={Boolean(editingEmployeeId)} busy={savingEmployee} onClose={() => setEmployeeOpen(false)} onSave={() => void submitEmployee()} />}
+    {mappingOpen && canManage && <QuarkMappingModal departments={employees.map(employee => employee.department)} onClose={() => setMappingOpen(false)} onSaved={loadBase} />}
     {uploadOpen && <EmployeeDocumentBulkUploadModal form={uploadForm} setForm={setUploadForm} employees={employees} categories={categories} files={uploadFiles} setFiles={setUploadFiles} busy={uploading} progress={uploadProgress} onClose={() => setUploadOpen(false)} onUpload={() => void submitUpload()} />}
     <ConfirmationModal open={Boolean(trashTarget)} danger title="Mover documento para a lixeira?" description="O documento deixará de aparecer na competência, mas poderá ser restaurado depois." confirmLabel="Mover para lixeira" onClose={() => setTrashTarget(null)} onConfirm={() => { if (trashTarget) void moveToTrash(trashTarget); }} />
     <ConfirmationModal open={Boolean(purgeTarget)} danger title="Excluir documento definitivamente?" description="O arquivo e seus metadados serão removidos do cofre. Esta ação não pode ser desfeita." confirmLabel="Excluir definitivamente" onClose={() => setPurgeTarget(null)} onConfirm={() => { if (purgeTarget) void purgeDocument(purgeTarget); }} />

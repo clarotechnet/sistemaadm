@@ -2,13 +2,36 @@
 
 Benefícios → Vale Alimentação substitui o antigo módulo reservado de Vale Transporte. O desconto de vale-transporte que já existe na leitura das folhas continua com sua classificação original.
 
-## Período e cálculo pendente
+## Período, valores e dias previstos
 
 O operador escolhe início e fim das ocorrências. Por exemplo, 26/10/2026 a 25/11/2026 corresponde ao benefício de dezembro/2026. O período inicial sugerido vai do dia 26 anterior ao dia 25 de fechamento; ambos os campos são editáveis. O limite técnico por consulta é de 366 dias.
 
-O valor futuro deverá considerar os dias previstos de trabalho no mês do benefício menos os dias de faltas e atestados do período selecionado. A origem dos dias previstos e os valores diários ainda serão informados pelo RH. Nenhum calendário, escala, valor ou pagamento foi estimado. `planned_work_days`, `payable_days`, `daily_value` e `amount_due` ficam nulos, inclusive no banco. As colunas correspondentes do Excel ficam vazias; a tela e o PDF indicam a pendência.
+Os valores iniciais informados pelo RH em 10/11/2026 são reconhecidos pela cidade operacional, setor e cargo, ignorando diferenças de acento e caixa. A instalação já preenche esses valores; não é necessário digitá-los novamente:
 
-Natal, Mossoró e Fortaleza possuem os grupos Técnico/Técnica e demais setores. O grupo técnico reconhece o início do setor normalizado `TECNICO` ou `TECNICA`. Recife permanece com quatro faixas a definir; o sistema não atribui uma faixa sem a regra. Férias, admissões, desligamentos e elegibilidade não recebem regras financeiras presumidas.
+| Cidade | Grupo | Valor |
+| --- | --- | --- |
+| Natal, Mossoró, Parnamirim e Fortaleza | Técnica/técnico, auxiliar de instalação e supervisor técnico | R$ 25,00/dia |
+| Natal, Mossoró, Parnamirim e Fortaleza | Demais setores/cargos | R$ 20,00/dia |
+| Recife | Consultor e supervisor de vendas | R$ 20,00/dia |
+| Recife | Estoque e RH | R$ 23,00/dia, com base fixa de 22 dias (R$ 506,00 antes dos descontos) |
+| Recife | Técnica, auxiliar de instalação e supervisor técnico | R$ 28,58/dia |
+| João Pessoa e Maceió | Consultor e supervisor de vendas | R$ 20,00/dia |
+
+Por orientação do RH, **Recife segue temporariamente o desconto normal de faltas + atestados**, até explicar sua peculiaridade. Na configuração inicial, a fórmula de estoque/RH é `máximo(0, 22 − dias de faltas − dias de atestados) × R$ 23,00`. Por exemplo: 1 falta e 2 dias de atestado resultam em 19 dias a pagar e R$ 437,00. Sobreposições exigem revisão antes de calcular. Após uma alteração, a fórmula usa a diária e a base fixa vigentes para o mês do benefício.
+
+## Editar valores e vigências
+
+**Diárias por cidade → Editar valores** permite que RH/Administrador ativo selecione uma cidade, o mês inicial de vigência e as diárias dos grupos já definidos. Estoque/RH de Recife permite também alterar sua base fixa, entre 1 e 31 dias. Dias dos demais grupos continuam para uma etapa posterior. A observação/referência é opcional. Valores com mais de duas casas decimais, negativos ou inválidos não são salvos.
+
+Cada alteração cria novas versões no banco, sem substituir o histórico. Um reajuste de Natal para janeiro não modifica dezembro, Mossoró ou Fortaleza. No mesmo mês, a revisão mais recente daquele grupo prevalece para novas consultas. A lista mostra quem alterou, quando, a vigência e a observação. Se outro responsável salvar durante a edição, o formulário solicita recarregar em vez de sobrescrever silenciosamente.
+
+A configuração inicial tem vigência desde **11/2026**, mês em que os valores foram informados. Meses anteriores exigem que o RH informe sua tabela; não são presumidos valores históricos. Quando a estrutura ainda não foi instalada, os valores já fornecidos continuam visíveis como configuração inicial, e a gravação compartilhada fica bloqueada até instalar. Falhas de rede não criam configurações locais nem simulam uma gravação bem-sucedida.
+
+Reajustes são informados pelo RH; não há atualização automática por legislação ou convenção. Salvar valores não consulta o QuarkRH. Para aplicar uma nova tabela aos dados de uma apuração, faça uma nova consulta explícita. Consultas já salvas mantêm seus valores e as versões exatas das regras que utilizaram.
+
+**Os dias dos demais grupos ficaram expressamente para depois.** O sistema salva a diária, mas mantém `planned_work_days`, `payable_days` e `amount_due` nulos nesses grupos. Não usa automaticamente dias úteis, calendário, escala ou um padrão de 22 dias. Outros grupos de João Pessoa, Maceió e Recife permanecem com valor a definir. `SUPORTE TECNICO` sozinho não é tratado como setor técnico; o cargo técnico, auxiliar de instalação ou supervisor técnico pode enquadrar o funcionário nessa faixa.
+
+Estoque/RH de Recife só recebe total final com funcionário ativo, período encerrado e ambas as fontes consultadas, sem sobreposição. Falha na API, período aberto ou desligamento mantém o cálculo pendente, sem transformar desconhecido em zero. Férias, admissões e demais regras de elegibilidade não recebem descontos presumidos. Na tela, a tabela **Valores informados pelo RH** mostra as faixas; a lista e os relatórios exibem dias, diária, valor a receber e motivo da pendência. O total considera somente cálculos concluídos e identifica quantos funcionários permanecem pendentes.
 
 ## Atualização e qualidade das ocorrências
 
@@ -24,7 +47,13 @@ Fonte indisponível, resposta inválida, registro inválido ou funcionário sem 
 
 Cada atualização cria uma nova versão com período, mês do benefício, data consultada, responsável, cobertura, cadastro dos funcionários e ocorrências. Versões anteriores preservam os nomes, setores e contagens daquele momento, inclusive após edição ou remoção do cadastro atual. Falhas não substituem versões concluídas. A aba Histórico permite abrir cada versão; consultas interrompidas há mais de dez minutos podem ser marcadas como falha na próxima atualização.
 
-Somente RH/Administrador ativo pode consultar ou atualizar. O navegador tem apenas SELECT sob RLS. A gravação é feita pela nova função Edge autenticada, com revalidação do perfil, e finalizada em uma transação com `complete_benefit_meal_run`, exclusiva de `service_role` e `SECURITY INVOKER`. O token QuarkRH e as chaves privadas ficam no servidor. São guardados somente identificadores, datas e horas das ocorrências, sem CID, diagnóstico ou documentos médicos.
+A diária e os resultados calculados também ficam congelados em cada nova versão. `calculation_version=1` identifica os valores iniciais; a versão 2 guarda `rate_version_id` em cada funcionário e registra em `rate_version_ids` as regras escolhidas ao iniciar a consulta. Alterar uma diária durante uma consulta não altera seus resultados. Consultas anteriores sem cálculo não são recalculadas. Situação da consulta (`SUCCESS`/`PARTIAL`) descreve a cobertura das ocorrências; `calculation_status` distingue cálculo concluído de pendência financeira.
+
+Em **Apuração**, uma consulta antiga sem diária salva mostra a diária conhecida como **Regra atual**, apenas para referência pela cidade, setor e cargo daquele cadastro. Dias e totais permanecem como estavam; não ocorre gravação nem consulta automática ao QuarkRH. PDF/Excel dessa tela identificam a diária de referência nas observações. No **Histórico**, a diária antiga continua como **Não registrado**, e a exportação mantém o campo vazio. Diárias já salvas nunca são substituídas pela referência atual.
+
+A lista reúne funcionário/CPF/empresa, setor/cargo, ocorrências, dias, diária, total e situação em sete colunas que acompanham a largura disponível, inclusive ao recolher o menu lateral. Em espaços menores, cada funcionário aparece em um cartão, sem arraste horizontal. **Ver detalhes** abre a faixa, o motivo da pendência, os dados do cálculo e as ocorrências completas.
+
+Somente RH/Administrador ativo pode consultar ou atualizar. O navegador tem apenas SELECT sob RLS. A função Edge revalida o perfil e calcula os valores no servidor. `complete_benefit_meal_versioned_run`, exclusiva de `service_role` e `SECURITY INVOKER`, reutiliza a validação de ocorrências e confere as regras registradas para a consulta antes de salvar os campos financeiros na mesma transação. `save_benefit_meal_rates` é exclusiva do servidor; o usuário real vem do JWT, sem aceitar um responsável enviado pelo formulário. A tabela de regras permite somente leitura/inclusão ao servidor e não permite edição/exclusão do histórico. Funções antigas com valores fixos são impedidas de salvar novos cálculos financeiros após instalar a estrutura editável. O token QuarkRH e as chaves privadas ficam no servidor. São guardados somente identificadores, datas e horas das ocorrências, sem CID, diagnóstico ou documentos médicos.
 
 PDF A4 paisagem e Excel XLSX incluem logo, empresas/unidades, período, mês do benefício, responsável, data, versão e filtros. Exportam todos os registros filtrados, independentemente da paginação. CPFs são texto e respeitam a opção de mascaramento. O Excel tem cabeçalho, filtros, congelamento de linhas/colunas, datas e números tipados; campos financeiros desconhecidos ficam vazios. O PDF repete cabeçalho e empresa nas quebras de página.
 
@@ -36,7 +65,20 @@ Projeto RH exclusivo: **kdbnheeosaptxpwkmjbz**. A migração aditiva é `supabas
 
 Publique também `supabase/functions/sync-benefit-meal/index.ts`, `quark.ts` e `_shared/meal-domain.ts`, preservando a validação JWT e os secrets de servidor já existentes `QUARK_AUTH_TOKEN` e, opcionalmente, `QUARK_API_URL`. Não exponha secrets no frontend. Sem a estrutura, a tela informa a instalação pendente e bloqueia a atualização.
 
-A verificação somente de leitura `node scripts/verify-benefit-meal-db.mjs --project=kdbnheeosaptxpwkmjbz` confere a referência nas URLs pública e de banco antes de conectar. Verifica RLS, grants, o corpo da RPC e campos financeiros pendentes, sem exibir dados de funcionários.
+A atualização dos valores é `supabase/migrations/20261110132307_benefit_meal_daily_rates.sql`. A função usa a cidade operacional do mapeamento quando disponível; se o módulo ainda não estiver instalado, mantém a identificação pelo nome original da unidade. O instalador abaixo aplica **somente** a nova migration de valores, em transação, confere o projeto RH nas duas conexões, RLS/grants e preservação das consultas/folhas/cadastros existentes. Sem `--apply`, somente verifica o estado.
+
+```powershell
+Set-Location "D:\sistemas\sistemaadm"
+node scripts/install-meal-rates.mjs --project=kdbnheeosaptxpwkmjbz --apply
+if ($LASTEXITCODE -ne 0) { throw "Instalação interrompida." }
+node scripts/install-meal-policy.mjs --project=kdbnheeosaptxpwkmjbz --apply
+if ($LASTEXITCODE -ne 0) { throw "Instalação interrompida." }
+npx --yes supabase@2.121.0 functions deploy sync-benefit-meal --project-ref kdbnheeosaptxpwkmjbz --use-api
+```
+
+Depois publique a interface pelo fluxo normal do projeto. Recarregue a tela e faça uma nova consulta para salvar as diárias. O GET autenticado da função verifica a versão antes de iniciar uma consulta; uma função antiga não inicia a sincronização e a versão salva é preservada.
+
+A migration das regras editáveis é `supabase/migrations/20261110143715_benefit_meal_editable_rates.sql`. `install-meal-policy.mjs` aplica somente essa atualização, verifica RLS/grants e compara os dados existentes antes/depois; sem `--apply`, apenas verifica o estado. Nenhuma folha ou funcionário é modificado pela instalação.
 
 ## Verificação
 

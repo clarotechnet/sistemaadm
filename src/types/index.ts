@@ -99,6 +99,9 @@ export interface Employee {
   externalUnitName: string;
   externalTeamId: string | null;
   externalTeamName: string;
+  unitName?: string;
+  city?: string;
+  mappingPending?: boolean;
   admissionDate: string | null;
   terminationDate: string | null;
   lastSyncedAt: string | null;
@@ -117,6 +120,8 @@ export interface EmployeeSyncRun {
   updatedCount: number;
   linkedCount: number;
   skippedCount: number;
+  conflictsCount?: number;
+  unmappedCount?: number;
   errorMessage: string | null;
   startedAt: string;
   completedAt: string | null;
@@ -130,6 +135,8 @@ export interface EmployeeSyncResult {
   updated: number;
   linked: number;
   skipped: number;
+  conflicts?: number;
+  unmapped?: number;
 }
 
 export interface DocumentCategory {

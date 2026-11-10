@@ -1,6 +1,8 @@
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import { listEmployees } from "./employee-documents";
 import { buildMealRows, mealPeriod, type MealCoverage, type MealEvent, type MealPeriod, type MealRow } from "../../supabase/functions/_shared/meal-domain";
+import type { MealRateVersion } from "../../supabase/functions/_shared/meal-policy";
+import { requireMealRateBackend } from "./meal-rates";
 
 export type MealRun = { id: string; period_start: string; period_end: string; benefit_month: string; queried_through: string; status: "RUNNING" | "SUCCESS" | "PARTIAL" | "ERROR"; triggered_by_name: string; started_at: string; completed_at: string | null; employee_count: number; coverage: MealCoverage[]; warnings: string[]; error_message: string | null };
 const runFields = "id,period_start,period_end,benefit_month,queried_through,status,triggered_by_name,started_at,completed_at,employee_count,coverage,warnings,error_message";
@@ -34,14 +36,16 @@ export async function listMealEmployeeEvents(runId: string, employeeId: string):
   }
   throw new Error("Ocorrências excedem o limite de consulta.");
 }
-export async function currentMealEmployees(period: MealPeriod) {
+export async function currentMealEmployees(period: MealPeriod, rates?: MealRateVersion[]) {
   const employees = await listEmployees();
-  return buildMealRows(employees.map(row => ({ id: row.id, full_name: row.name, cpf: row.cpf, department: row.department, job_title: row.jobTitle, status: row.status, external_id: row.externalId, external_unit_id: row.externalUnitId, external_unit_name: row.externalUnitName })), [], [], period);
+  return buildMealRows(employees.map(row => ({ id: row.id, full_name: row.name, cpf: row.cpf, department: row.department, job_title: row.jobTitle, status: row.status, external_id: row.externalId, external_unit_id: row.externalUnitId, external_unit_name: row.externalUnitName, mapped_city: row.city })), [], [], period, { rates, benefitMonth: period.benefitMonth });
 }
 export async function syncMealPeriod(period: MealPeriod, progress?: (message: string) => void) {
   mealPeriod(period.start, period.end);
+  const client = createSupabaseBrowserClient();
+  await requireMealRateBackend();
   progress?.("Consultando faltas e atestados...");
-  const { data, error } = await createSupabaseBrowserClient().functions.invoke("sync-benefit-meal", { body: { start: period.start, end: period.end } });
+  const { data, error } = await client.functions.invoke("sync-benefit-meal", { body: { start: period.start, end: period.end } });
   if (error) {
     const context = (error as { context?: unknown }).context;
     if (context instanceof Response) {

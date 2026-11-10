@@ -1,0 +1,83 @@
+// Dedicated disposable loopback cluster only. Every schema/data change is rolled back.
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import postgres from "postgres";
+const url = new URL(process.env.MEAL_QA_DATABASE_URL ?? "postgres://postgres@127.0.0.1:55439/postgres");
+assert.ok(["127.0.0.1", "localhost"].includes(url.hostname) && url.port === "55439");
+const db = postgres(url.href, { max: 1, onnotice: () => {} }), rollback = new Error("ROLLBACK_QUARK_MAPPING");
+const actor = "11111111-1111-4111-8111-111111111111", viewer = "22222222-2222-4222-8222-222222222222";
+const employee = "33333333-3333-4333-8333-333333333333", other = "44444444-4444-4444-8444-444444444444", manual = "55555555-5555-4555-8555-555555555555";
+const record = { name: "Pessoa Teste", cpf: "52998224725", document_number: "52998224725", department: "TECNICO", registration: "0008", job_title: "Técnico", status: "ATIVO", external_id: "e1", external_unit_id: "9417839", external_unit_name: "VNA TELECOM LTDA - NATAL", external_team_id: "t1", external_team_name: "TECNICO", admission_date: "2024-01-01" };
+const passed = [];
+try {
+ await db.begin(async sql => {
+  await sql.unsafe(`create role anon; create role authenticated; create role service_role bypassrls;
+   create schema auth; create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+   grant usage on schema public,auth to anon,authenticated,service_role;
+   create table public.profiles(id uuid primary key,full_name text,status text,role text);
+   create function public.is_rh_or_admin() returns boolean language sql stable security definer set search_path='' as $$select exists(select 1 from public.profiles where id=auth.uid() and status='ATIVO' and role in('RH','ADMINISTRADOR'))$$;
+   create table public.employees(id uuid primary key default gen_random_uuid(),full_name text,cpf text,document_number text,registration text,department text,job_title text,status text,source text,external_id text,external_unit_id text,external_unit_name text,external_team_id text,external_team_name text,admission_date date,termination_date date,last_synced_at timestamptz,created_by uuid,updated_by uuid);
+   create table public.employee_sync_runs(id uuid primary key default gen_random_uuid(),source text,status text,triggered_by uuid,triggered_by_name text,units_count integer default 0,received_count integer default 0,created_count integer default 0,updated_count integer default 0,linked_count integer default 0,skipped_count integer default 0,started_at timestamptz default now(),completed_at timestamptz,error_message text);
+   create table public.qa_department_changes(old_value text,new_value text);
+   create function public.qa_capture_department() returns trigger language plpgsql as $$begin insert into public.qa_department_changes values(old.department,new.department);return new;end$$;
+   create trigger qa_department_changes after update on public.employees for each row when(old.department is distinct from new.department) execute function public.qa_capture_department();
+   grant select on public.profiles to service_role;
+   grant all on public.employees,public.employee_sync_runs,public.qa_department_changes to service_role;`);
+  await sql`insert into public.profiles values(${actor},'RH Teste','ATIVO','RH'),(${viewer},'Consulta','ATIVO','CONSULTA')`;
+  await sql`insert into public.employees(id,full_name,cpf,department,status,source,external_id,external_unit_id,external_unit_name,external_team_id,external_team_name) values(${employee},'Pessoa Teste','52998224725','TECNICO','ATIVO','QUARK','e1','9417839','VNA TELECOM LTDA - NATAL','t1','TECNICO'),(${other},'Pessoa Recife','11144477735','COMERCIAL','ATIVO','QUARK','e2','9417837','RDT RECIFE','t1','COMERCIAL'),(${manual},'Manual','00000000001','RH','ATIVO','MANUAL',null,null,'',null,'')`;
+  const oldRpc = (await readFile("supabase/migrations/20261009165000_preserve_quark_employment_dates.sql", "utf8")).replace(/^\s*BEGIN;/i, "").replace(/COMMIT;\s*$/i, "");
+  await sql.unsafe(oldRpc);
+  await sql.unsafe("revoke all on function public.sync_quark_employees(uuid,jsonb) from public,anon,authenticated; grant execute on function public.sync_quark_employees(uuid,jsonb) to service_role;");
+  await sql.unsafe(await readFile("supabase/migrations/20261110112827_quark_unit_team_mapping.sql", "utf8"));
+  const checkpoint = async (name, operation, pattern) => { await sql.unsafe(`savepoint ${name}`); await assert.rejects(operation, pattern); await sql.unsafe(`rollback to savepoint ${name}`); };
+  const save = (kind, data, identity = actor) => sql`select public.save_quark_rh_mapping(${identity},${kind},${JSON.stringify(data)}::text::jsonb)`;
+  const discover = data => sql`select public.discover_quark_rh_units(${JSON.stringify(data)}::text::jsonb)`;
+  const natal = (await sql`select id from public.rh_unit_catalog where name='Natal'`)[0].id;
+  assert.equal((await sql`select count(*)::int n from public.quark_unit_mappings where sync_enabled`)[0].n, 10);
+  for (const id of ["13852936", "13852937", "13852938", "14180910"]) assert.equal((await sql`select sync_enabled from public.quark_unit_mappings where external_unit_id=${id}`)[0].sync_enabled, true);
+  assert.equal((await sql`select mapped_city from public.employees where id=${employee}`)[0].mapped_city, "Natal");
+  await sql.unsafe("set local role service_role");
+  await discover([{ id: "99900000", name: "Nova empresa API", city: "Natal" }, { id: "9417839", name: "Nome API atualizado", city: "Natal" }]);
+  const fresh = (await sql`select sync_enabled,target_unit_id from public.quark_unit_mappings where external_unit_id='99900000'`)[0];
+  assert.equal(fresh.sync_enabled, false); assert.equal(fresh.target_unit_id, null);
+  assert.equal((await sql`select target_unit_id from public.quark_unit_mappings where external_unit_id='9417839'`)[0].target_unit_id, natal);
+  passed.push("ten authorized units are enabled; discovery adds companies as excluded and preserves choices");
+  await save("team", { unit: "9417839", team: "t1", department: "Instalação especializada" });
+  assert.equal((await sql`select department from public.employees where id=${employee}`)[0].department, "Instalação especializada");
+  assert.equal((await sql`select department from public.employees where id=${other}`)[0].department, "COMERCIAL");
+  await sql`delete from public.qa_department_changes`;
+  async function run(records = [record]) {
+   const id = (await sql`insert into public.employee_sync_runs(source,status,triggered_by,triggered_by_name) values('QUARK','RUNNING',${actor},'RH Teste') returning id`)[0].id;
+   await sql`select public.complete_quark_rh_sync(${actor},${id},${JSON.stringify(records)}::text::jsonb,${records.length},0,0)`;
+   return id;
+  }
+  const first = await run(); await run();
+  assert.equal((await sql`select department from public.employees where id=${employee}`)[0].department, "Instalação especializada");
+  assert.equal((await sql`select count(*)::int n from public.qa_department_changes`)[0].n, 0, "Sync must not temporarily replace mapped departments with raw names");
+  assert.equal((await sql`select external_team_name from public.employees where id=${employee}`)[0].external_team_name, "TECNICO");
+  await checkpoint("immutable_run", () => sql`select public.complete_quark_rh_sync(${actor},${first},${JSON.stringify([record])}::text::jsonb,1,0,0)`, /já concluída/);
+  passed.push("team mappings are isolated by unit, retain raw data and survive repeated atomic sync without spurious movements");
+  await save("unit", { unit: "9417839", target: natal, enabled: false });
+  assert.equal((await sql`select count(*)::int n from public.employees`)[0].n, 3);
+  await checkpoint("disabled_race", () => run(), /seleção de unidades mudou/);
+  await save("unit", { unit: "9417839", target: "", enabled: true });
+  assert.equal((await sql`select quark_mapping_pending from public.employees where id=${employee}`)[0].quark_mapping_pending, true);
+  await checkpoint("bad_actor", () => save("unit", { unit: "9417839", target: natal, enabled: true }, viewer), /Acesso negado/);
+  passed.push("disabling preserves staff; a changed selection aborts the whole import and missing mappings stay pending");
+  await sql.unsafe("reset role; set local role authenticated");
+  await sql`select set_config('request.jwt.claim.sub',${viewer},true)`;
+  for (const table of ["rh_unit_catalog", "quark_unit_mappings", "quark_team_mappings"]) assert.equal((await sql.unsafe(`select count(*)::int n from public.${table}`))[0].n, 0);
+  await sql`select set_config('request.jwt.claim.sub',${actor},true)`;
+  assert.equal((await sql`select count(*)::int n from public.quark_unit_mappings`)[0].n, 11);
+  await checkpoint("human_write", () => sql`update public.quark_unit_mappings set sync_enabled=true`, /permission denied/);
+  await checkpoint("human_rpc", () => save("unit", { unit: "9417839", target: natal, enabled: true }), /permission denied/);
+  await sql.unsafe("reset role; set local role anon");
+  await checkpoint("anon_read", () => sql`select * from public.quark_unit_mappings`, /permission denied/);
+  await sql.unsafe("reset role");
+  assert.equal((await sql`select full_name,department from public.employees where id=${manual}`)[0].department, "RH");
+  passed.push("RH-only reads, service-only writes/RPCs, no anonymous access and manual staff preserved");
+  throw rollback;
+ });
+} catch (error) { if (error !== rollback) throw error; }
+finally { await db.end({ timeout: 2 }); }
+console.log(JSON.stringify({ passed, result: "Isolated transaction rolled back; no production data changed" }, null, 2));

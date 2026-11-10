@@ -2,17 +2,18 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.114.0";
 import { buildMealRows, mealPeriod, mealToday, type MealEmployee } from "../_shared/meal-domain.ts";
 import { createMealRequester, fetchMealUnit } from "./quark.ts";
+import { isMealMonth, type MealRateVersion } from "../_shared/meal-policy.ts";
 
 const origin = "https://administrativo.clarotechnet.com.br";
 const allowed = new Set([origin, "http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5174"]);
-const fields = "id,full_name,cpf,department,job_title,status,external_id,external_unit_id,external_unit_name";
+const fields = "id,full_name,cpf,department,job_title,status,external_id,external_unit_id,external_unit_name,mapped_city";
 function reply(request: Request, body: unknown, status = 200) {
   const requestOrigin = request.headers.get("origin") ?? "";
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": allowed.has(requestOrigin) ? requestOrigin : origin, "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS", Vary: "Origin" } });
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": allowed.has(requestOrigin) ? requestOrigin : origin, "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", Vary: "Origin" } });
 }
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") return reply(request, {});
-  if (request.method !== "POST") return reply(request, { error: "Método não permitido." }, 405);
+  if (!["GET", "POST"].includes(request.method)) return reply(request, { error: "Método não permitido." }, 405);
   const authorization = request.headers.get("authorization") ?? "";
   if (!authorization.startsWith("Bearer ")) return reply(request, { error: "Não autenticado." }, 401);
   const url = Deno.env.get("SUPABASE_URL") ?? "", key = Deno.env.get("SUPABASE_ANON_KEY") ?? "", secret = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -23,19 +24,41 @@ Deno.serve(async (request: Request) => {
   const admin = createClient(url, secret, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: profile, error: profileError } = await admin.from("profiles").select("full_name,role,status").eq("id", user.id).single();
   if (profileError || profile?.status !== "ATIVO" || !["RH", "ADMINISTRADOR"].includes(profile?.role)) return reply(request, { error: "Acesso negado." }, 403);
+  if (request.method === "GET") {
+    const { error } = await admin.from("benefit_meal_rate_versions").select("id").limit(0);
+    return error ? reply(request, { error: "Instale a edição de valores de Vale Alimentação no Supabase RH." }, 503) : reply(request, { ok: true, calculationVersion: 2, rateRulesVersion: 1 });
+  }
+  const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return reply(request, { error: "Dados inválidos." }, 400);
+  if (body.action === "save_rates") {
+    if (!isMealMonth(String(body.month ?? ""))) return reply(request, { error: "Competência dos valores inválida." }, 400);
+    const { data, error } = await admin.rpc("save_benefit_meal_rates", { p_actor: user.id, p_city: String(body.city ?? ""), p_month: String(body.month) + "-01", p_changes: body.changes, p_note: String(body.note ?? "") });
+    if (error) return reply(request, { error: error.message }, error.message.includes("mudaram durante") ? 409 : 400);
+    return reply(request, { ok: true, ...data });
+  }
+  if (body.action && body.action !== "sync") return reply(request, { error: "Ação inválida." }, 400);
   if (!token) return reply(request, { error: "Integração QuarkRH não configurada." }, 503);
   let period;
   try {
-    const body = await request.json();
     period = mealPeriod(String(body.start ?? ""), String(body.end ?? ""));
     if (period.start > mealToday()) throw new Error("O período selecionado ainda não começou.");
   } catch (error) { return reply(request, { error: error instanceof Error ? error.message : "Período inválido." }, 400); }
   const through = period.end < mealToday() ? period.end : mealToday();
   let runId: string | null = null;
   try {
+    const { data: ratesData, error: ratesError } = await admin.rpc("get_benefit_meal_rates", { p_month: period.benefitMonth + "-01" });
+    if (ratesError) throw ratesError;
+    const rates = (ratesData ?? []) as MealRateVersion[];
     const employees: MealEmployee[] = [];
+    let employeeFields = fields;
     for (let offset = 0; offset < 50000; offset += 1000) {
-      const { data, error } = await admin.from("employees").select(fields).order("id").range(offset, offset + 999);
+      let { data, error } = await admin.from("employees").select(employeeFields).order("id").range(offset, offset + 999);
+      if (error?.code === "42703" && employeeFields === fields) {
+        // The mapping module can be installed separately. Until then, retain the
+        // existing operational-city lookup from the original unit name.
+        employeeFields = fields.replace(",mapped_city", "");
+        ({ data, error } = await admin.from("employees").select(employeeFields).order("id").range(offset, offset + 999));
+      }
       if (error) throw error;
       employees.push(...(data ?? []) as MealEmployee[]);
       if (!data || data.length < 1000) break;
@@ -45,7 +68,7 @@ Deno.serve(async (request: Request) => {
     // Interrupted attempts never block a period permanently or replace old snapshots.
     const { error: cleanupError } = await admin.from("benefit_meal_runs").update({ status: "ERROR", completed_at: new Date().toISOString(), error_message: "Consulta anterior interrompida antes da conclusão." }).eq("status", "RUNNING").lt("started_at", new Date(Date.now() - 10 * 60000).toISOString());
     if (cleanupError) throw cleanupError;
-    const { data: run, error: runError } = await admin.from("benefit_meal_runs").insert({ period_start: period.start, period_end: period.end, benefit_month: period.benefitMonth + "-01", queried_through: through, triggered_by: user.id, triggered_by_name: profile.full_name }).select("id").single();
+    const { data: run, error: runError } = await admin.from("benefit_meal_runs").insert({ period_start: period.start, period_end: period.end, benefit_month: period.benefitMonth + "-01", queried_through: through, triggered_by: user.id, triggered_by_name: profile.full_name, rate_version_ids: rates.map(rate => rate.id) }).select("id").single();
     if (runError) throw new Error(runError.code === "23505" ? "Já existe uma consulta em andamento para este período. Aguarde." : runError.message);
     runId = run.id;
     const byUnit = new Map<string, Map<string, string>>();
@@ -60,14 +83,15 @@ Deno.serve(async (request: Request) => {
       results.push(await fetchMealUnit({ base, token, unit, employees: map, bounds: { start: period.start, end: through }, deadline, requester }));
     }
     const events = results.flatMap(result => result.events), coverage = results.map(result => result.coverage);
-    const rows = buildMealRows(employees, events, coverage, { start: period.start, end: through });
+    const rows = buildMealRows(employees, events, coverage, { start: period.start, end: through }, { periodEnd: period.end, rates, benefitMonth: period.benefitMonth });
     const warnings = results.flatMap(result => result.coverage.issues.map(message => `Unidade ${result.coverage.unit_id}: ${message}`));
     if (through < period.end) warnings.unshift(`Período ainda aberto: ocorrências consultadas somente até ${through.split("-").reverse().join("/")}.`);
-    const { error: saveError } = await admin.rpc("complete_benefit_meal_run", { p_run_id: runId, p_actor: user.id, p_rows: rows, p_events: events, p_coverage: coverage, p_warnings: warnings });
+    const { error: saveError } = await admin.rpc("complete_benefit_meal_versioned_run", { p_run_id: runId, p_actor: user.id, p_rows: rows, p_events: events, p_coverage: coverage, p_warnings: warnings });
     if (saveError) throw saveError;
     return reply(request, { ok: true, runId, rows: rows.length });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Não foi possível concluir a atualização.";
+    const failure = error as { code?: string; message?: string } | null;
+    const message = failure?.code === "PGRST202" ? "Instale a atualização dos valores de Vale Alimentação no banco RH. A consulta anterior foi preservada." : error instanceof Error ? error.message : failure?.message || "Não foi possível concluir a atualização.";
     if (runId) await admin.from("benefit_meal_runs").update({ status: "ERROR", completed_at: new Date().toISOString(), error_message: message.slice(0, 1000) }).eq("id", runId).eq("status", "RUNNING");
     return reply(request, { error: message }, 502);
   }

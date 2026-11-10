@@ -12,11 +12,13 @@ type EmployeeRow = {
   status: EmployeeStatus; source: "MANUAL" | "QUARK"; external_id: string | null; external_unit_id: string | null;
   external_unit_name: string; external_team_id: string | null; external_team_name: string; admission_date: string | null;
   termination_date: string | null; last_synced_at: string | null; created_at: string; updated_at: string;
+  mapped_unit_name?: string | null; mapped_city?: string | null; quark_mapping_pending?: boolean;
 };
 type EmployeeSyncRunRow = {
   id:string; status:EmployeeSyncRun["status"]; triggered_by_name:string; units_count:number; received_count:number;
   created_count:number; updated_count:number; linked_count:number; skipped_count:number; error_message:string|null;
   started_at:string; completed_at:string|null;
+  conflicts_count?: number; unmapped_count?: number;
 };
 type CategoryRow = { id: string; label: string; monthly_required: boolean; active: boolean; sort_order: number };
 type DocumentRow = {
@@ -33,6 +35,7 @@ const employeeFromRow = (row: EmployeeRow): Employee => ({
   externalUnitId: row.external_unit_id ?? null, externalUnitName: row.external_unit_name ?? "", externalTeamId: row.external_team_id ?? null,
   externalTeamName: row.external_team_name ?? "", admissionDate: row.admission_date ?? null, terminationDate: row.termination_date ?? null,
   lastSyncedAt: row.last_synced_at ?? null, createdAt: row.created_at, updatedAt: row.updated_at,
+  unitName: row.mapped_unit_name ?? "", city: row.mapped_city ?? "", mappingPending: row.quark_mapping_pending ?? false,
 });
 const categoryFromRow = (row: CategoryRow): DocumentCategory => ({
   id: row.id, label: row.label, monthlyRequired: row.monthly_required, active: row.active, sortOrder: row.sort_order,
@@ -69,12 +72,14 @@ export async function listEmployees(): Promise<Employee[]> {
   const supabase = createSupabaseBrowserClient();
   const pageSize = 1000;
   const all: EmployeeRow[] = [];
+  let mappedFields = true;
+  const baseFields = "id,full_name,cpf,document_number,registration,department,job_title,status,source,external_id,external_unit_id,external_unit_name,external_team_id,external_team_name,admission_date,termination_date,last_synced_at,created_at,updated_at";
   for (let offset = 0; offset < 50000; offset += pageSize) {
-    const { data, error } = await supabase.from("employees")
-      .select("id,full_name,cpf,document_number,registration,department,job_title,status,source,external_id,external_unit_id,external_unit_name,external_team_id,external_team_name,admission_date,termination_date,last_synced_at,created_at,updated_at")
-      .order("full_name").order("id").range(offset, offset + pageSize - 1);
+    const read = () => supabase.from("employees").select(baseFields + (mappedFields ? ",mapped_unit_name,mapped_city,quark_mapping_pending" : "")).order("full_name").order("id").range(offset, offset + pageSize - 1);
+    let { data, error } = await read();
+    if (error && error.code === "42703" && /mapped_unit_name|mapped_city|quark_mapping_pending/.test(error.message)) { mappedFields = false; ({ data, error } = await read()); }
     if (error) throw error;
-    const page = (data ?? []) as EmployeeRow[];
+    const page = (data ?? []) as unknown as EmployeeRow[];
     all.push(...page);
     if (page.length < pageSize) return all.map(employeeFromRow);
   }
@@ -107,12 +112,12 @@ const syncRunFromRow = (row: EmployeeSyncRunRow): EmployeeSyncRun => ({
   id: row.id, status: row.status, triggeredByName: row.triggered_by_name, unitsCount: Number(row.units_count ?? 0),
   receivedCount: Number(row.received_count ?? 0), createdCount: Number(row.created_count ?? 0), updatedCount: Number(row.updated_count ?? 0),
   linkedCount: Number(row.linked_count ?? 0), skippedCount: Number(row.skipped_count ?? 0), errorMessage: row.error_message ?? null,
-  startedAt: row.started_at, completedAt: row.completed_at ?? null,
+  startedAt: row.started_at, completedAt: row.completed_at ?? null, conflictsCount: Number(row.conflicts_count ?? 0), unmappedCount: Number(row.unmapped_count ?? 0),
 });
 
 export async function loadLatestEmployeeSync(): Promise<EmployeeSyncRun | null> {
   const supabase = createSupabaseBrowserClient();
-  const { data, error } = await supabase.from("employee_sync_runs").select("id,status,triggered_by_name,units_count,received_count,created_count,updated_count,linked_count,skipped_count,error_message,started_at,completed_at").order("started_at", { ascending: false }).limit(1).maybeSingle();
+  const { data, error } = await supabase.from("employee_sync_runs").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
   return data ? syncRunFromRow(data as EmployeeSyncRunRow) : null;
 }
@@ -124,7 +129,7 @@ export async function syncEmployeesFromQuark(): Promise<EmployeeSyncResult> {
   if (error) throw error;
   if (body.error) throw new Error(body.error);
   if (!body.runId) throw new Error("A sincronização terminou sem retornar o identificador da execução.");
-  return { runId: body.runId, units: Number(body.units ?? 0), received: Number(body.received ?? 0), created: Number(body.created ?? 0), updated: Number(body.updated ?? 0), linked: Number(body.linked ?? 0), skipped: Number(body.skipped ?? 0) };
+  return { runId: body.runId, units: Number(body.units ?? 0), received: Number(body.received ?? 0), created: Number(body.created ?? 0), updated: Number(body.updated ?? 0), linked: Number(body.linked ?? 0), skipped: Number(body.skipped ?? 0), conflicts: Number(body.conflicts ?? 0), unmapped: Number(body.unmapped ?? 0) };
 }
 
 export async function listDocumentCategories(): Promise<DocumentCategory[]> {

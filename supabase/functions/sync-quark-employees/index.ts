@@ -2,16 +2,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.114.0";
 import { parseQuarkEmployeeDate } from "./date-utils.ts";
 import { quarkEmployeeRegistration } from "./employee-registration.ts";
+import { collectQuarkPages, quarkUnits, resolveQuarkDuplicates } from "./catalog.ts";
+import { createEmployeeQuarkRequester } from "./request.ts";
 
 const PROD_ORIGIN = "https://administrativo.clarotechnet.com.br";
 const allowedOrigins = new Set([PROD_ORIGIN, "http://localhost:3000", "http://localhost:5173"]);
-const defaultUnits = ["9417839", "9417838", "9417837", "9417836", "9417834", "9338112"];
 const defaultApiUrl = "https://api.quark.tec.br/rh/ext";
-const pageSize = 100;
-const maxPages = 100;
 
 type JsonObject = Record<string, unknown>;
-type SyncCounts = { total?: number; created?: number; updated?: number; linked?: number; skipped?: number };
+type SyncCounts = { total?: number; created?: number; updated?: number; linked?: number; skipped?: number; conflicts?: number; unmapped?: number };
 
 type NormalizedEmployee = {
   external_id: string;
@@ -55,7 +54,7 @@ function corsHeaders(request: Request) {
   return {
     "Access-Control-Allow-Origin": allowedOrigins.has(origin) ? origin : PROD_ORIGIN,
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Vary": "Origin",
   };
 }
@@ -64,22 +63,6 @@ const jsonResponse = (request: Request, body: unknown, status = 200) => new Resp
   status,
   headers: { ...corsHeaders(request), "Content-Type": "application/json" },
 });
-
-function extractList(value: unknown): JsonObject[] {
-  if (Array.isArray(value)) return value.filter(item => item && typeof item === "object") as JsonObject[];
-  const object = asObject(value);
-  for (const key of ["dados", "content", "data", "items", "results", "result", "records", "registros", "colaboradores", "unidades", "lista"]) {
-    if (Array.isArray(object[key])) return extractList(object[key]);
-  }
-  for (const nested of Object.values(object)) {
-    const list = extractList(nested);
-    if (list.length) return list;
-  }
-  return [];
-}
-function unitNameFromRecord(record: JsonObject) {
-  return firstText(record.nomeFantasia, record.razaoSocial, record.nome, record.denominacao, record.descricao, record.sigla);
-}
 
 function normalizeEmployee(record: JsonObject, unitId: string, unitName: string): NormalizedEmployee | null {
   const pessoa = asObject(record.pessoa);
@@ -115,51 +98,9 @@ function normalizeEmployee(record: JsonObject, unitId: string, unitName: string)
     termination_date: parseQuarkEmployeeDate(record.dataDesligamento),
   };
 }
-async function quarkRequest(baseUrl: string, token: string, path: string, unitId?: string) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    headers: {
-      "Accept": "application/json",
-      "Auth-Token": token,
-      ...(unitId ? { "Unidade-ID": unitId } : {}),
-      "User-Agent": "RH-Control-Quark-Sync/1.0",
-    },
-  });
-  if (!response.ok) throw new Error(`QuarkRH respondeu HTTP ${response.status} em ${path}.`);
-  return await response.json() as unknown;
-}
-
-async function fetchUnitNames(baseUrl: string, token: string) {
-  const names = new Map<string, string>();
-  try {
-    const payload = await quarkRequest(baseUrl, token, "/v1/unidades");
-    for (const item of extractList(payload)) {
-      const id = asText(item.id ?? item.unidadeId ?? item.unidade_id);
-      if (id) names.set(id, unitNameFromRecord(item));
-    }
-  } catch {
-    // A sincronização de colaboradores continua mesmo se a lista de unidades falhar.
-  }
-  return names;
-}
-
-async function fetchCollaborators(baseUrl: string, token: string, unitId: string, unitName: string) {
-  const rows: NormalizedEmployee[] = [];
-  for (let page = 1; page <= maxPages; page += 1) {
-    const query = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
-    const payload = await quarkRequest(baseUrl, token, `/v1/colaboradores/?${query.toString()}`, unitId);
-    const pageRows = extractList(payload);
-    for (const record of pageRows) {
-      const normalized = normalizeEmployee(record, unitId, unitName);
-      if (normalized) rows.push(normalized);
-    }
-    if (pageRows.length < pageSize) break;
-    if (page === maxPages) throw new Error(`A unidade ${unitId} excedeu o limite seguro de paginação.`);
-  }
-  return rows;
-}
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(request) });
-  if (request.method !== "POST") return jsonResponse(request, { error: "Método não permitido." }, 405);
+  if (!["GET", "POST"].includes(request.method)) return jsonResponse(request, { error: "Método não permitido." }, 405);
 
   const authorization = request.headers.get("Authorization");
   if (!authorization?.startsWith("Bearer ")) return jsonResponse(request, { error: "Não autenticado." }, 401);
@@ -169,9 +110,6 @@ Deno.serve(async (request: Request) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const quarkToken = Deno.env.get("QUARK_AUTH_TOKEN")?.trim() ?? "";
   const quarkBaseUrl = (Deno.env.get("QUARK_API_URL")?.trim() || defaultApiUrl).replace(/\/$/, "");
-  const configuredUnits = (Deno.env.get("QUARK_UNIT_IDS") ?? "")
-    .split(",").map(value => value.trim()).filter(Boolean);
-  if (!quarkToken) return jsonResponse(request, { error: "O segredo QUARK_AUTH_TOKEN não está configurado no servidor." }, 503);
 
   const token = authorization.slice("Bearer ".length);
   const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } });
@@ -184,55 +122,51 @@ Deno.serve(async (request: Request) => {
     return jsonResponse(request, { error: "Acesso negado." }, 403);
   }
 
-  const unitNames = await fetchUnitNames(quarkBaseUrl, quarkToken);
-  const unitIds = configuredUnits.length ? configuredUnits : defaultUnits;
-
-  const { data: run, error: runError } = await admin.from("employee_sync_runs").insert({
-    source: "QUARK", status: "RUNNING", triggered_by: user.id, triggered_by_name: caller.full_name,
-    units_count: unitIds.length,
-  }).select("id").single();
-  if (runError || !run) return jsonResponse(request, { error: runError?.message ?? "Não foi possível iniciar a sincronização." }, 500);
+  if (request.method === "GET") return jsonResponse(request, { ok: true, mappingVersion: 1 });
+  const body = asObject(await request.json().catch(() => ({})));
+  const action = asText(body.action) || "sync";
+  let runId: string | null = null;
   try {
-    const byExternalKey = new Map<string, NormalizedEmployee>();
-    for (const unitId of unitIds) {
-      const unitName = unitNames.get(unitId) ?? unitId;
-      const collaborators = await fetchCollaborators(quarkBaseUrl, quarkToken, unitId, unitName);
-      for (const collaborator of collaborators) byExternalKey.set(`${collaborator.external_unit_id}:${collaborator.external_id}`, collaborator);
+    if (action === "save_mapping") {
+      const { data, error } = await admin.rpc("save_quark_rh_mapping", { p_actor: user.id, p_kind: asText(body.kind), p_data: asObject(body.data) });
+      if (error) throw error;
+      return jsonResponse(request, { ok: true, ...asObject(data) });
     }
-
-    const records = [...byExternalKey.values()];
-    const { data: result, error: syncError } = await admin.rpc("sync_quark_employees", {
-      p_actor: user.id,
-      p_records: records,
-    });
-    if (syncError) throw syncError;
-
-    const counts = (result ?? {}) as SyncCounts;
-    await admin.from("employee_sync_runs").update({
-      status: "SUCCESS",
-      received_count: records.length,
-      created_count: Number(counts.created ?? 0),
-      updated_count: Number(counts.updated ?? 0),
-      linked_count: Number(counts.linked ?? 0),
-      skipped_count: Number(counts.skipped ?? 0),
-      completed_at: new Date().toISOString(),
-    }).eq("id", run.id);
-
-    return jsonResponse(request, {
-      ok: true,
-      runId: run.id,
-      units: unitIds.length,
-      received: records.length,
-      created: Number(counts.created ?? 0),
-      updated: Number(counts.updated ?? 0),
-      linked: Number(counts.linked ?? 0),
-      skipped: Number(counts.skipped ?? 0),
-    });
+    if (!["sync", "discover"].includes(action)) return jsonResponse(request, { error: "Ação inválida." }, 400);
+    if (!quarkToken) return jsonResponse(request, { error: "QUARK_AUTH_TOKEN não configurado no servidor." }, 503);
+    if (action === "sync") {
+      const { error: releaseError } = await admin.from("employee_sync_runs").update({ status: "ERROR", completed_at: new Date().toISOString(), error_message: "Consulta anterior interrompida." }).eq("status", "RUNNING").lt("started_at", new Date(Date.now() - 10 * 60000).toISOString());
+      if (releaseError) throw releaseError;
+      const { data: run, error } = await admin.from("employee_sync_runs").insert({ source: "QUARK", status: "RUNNING", triggered_by: user.id, triggered_by_name: caller.full_name, units_count: 0 }).select("id").single();
+      if (error || !run) throw new Error(error?.code === "23505" ? "Já existe uma sincronização em andamento." : error?.message || "Não foi possível iniciar.");
+      runId = run.id;
+    }
+    const query = createEmployeeQuarkRequester({ base: quarkBaseUrl, token: quarkToken, deadline: Date.now() + 120000 });
+    const units = quarkUnits(await collectQuarkPages(params => query("/v1/unidades?" + params)));
+    if (!units.length) throw new Error("A API não retornou unidades. O cadastro foi preservado.");
+    const { error: discoveryError } = await admin.rpc("discover_quark_rh_units", { p_units: units });
+    if (discoveryError) throw discoveryError;
+    if (action === "discover") return jsonResponse(request, { ok: true, units: units.length });
+    const { data: enabled, error: unitError } = await admin.from("quark_unit_mappings").select("external_unit_id,external_unit_name").eq("sync_enabled", true).order("external_unit_id");
+    if (unitError) throw unitError;
+    if (!enabled?.length) throw new Error("Selecione as unidades em Mapear setores e unidades.");
+    const { error: countError } = await admin.from("employee_sync_runs").update({ units_count: enabled.length }).eq("id", runId);
+    if (countError) throw countError;
+    const records: NormalizedEmployee[] = []; let received = 0;
+    for (const unit of enabled) {
+      const rows = await collectQuarkPages(params => query("/v1/colaboradores/?" + params, unit.external_unit_id)); received += rows.length;
+      for (const row of rows) { const normalized = normalizeEmployee(row, unit.external_unit_id, unit.external_unit_name); if (normalized) records.push(normalized); }
+    }
+    if (!received) throw new Error("A API retornou lista vazia para todas as unidades selecionadas. Os cadastros foram preservados.");
+    const resolved = resolveQuarkDuplicates(records);
+    const { data: result, error } = await admin.rpc("complete_quark_rh_sync", { p_actor: user.id, p_run: runId, p_records: resolved.records, p_received: received, p_skipped: received - resolved.records.length, p_conflicts: resolved.conflicts });
+    if (error) throw error;
+    return jsonResponse(request, { ok: true, runId, units: enabled.length, ...(result as SyncCounts) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Falha inesperada na sincronização.";
-    await admin.from("employee_sync_runs").update({
+    const message = error instanceof Error ? error.message : asText(asObject(error).message) || "Falha inesperada na sincronização.";
+    if (runId) await admin.from("employee_sync_runs").update({
       status: "ERROR", error_message: message.slice(0, 1000), completed_at: new Date().toISOString(),
-    }).eq("id", run.id);
+    }).eq("id", runId);
     return jsonResponse(request, { error: message }, 502);
   }
 });

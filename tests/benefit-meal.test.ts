@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
-import { buildMealRows, defaultMealPeriod, mealBenefitMonth, mealCity, mealDays, mealPeriod, mealRateGroup, mealToday, type MealCoverage, type MealEmployee, type MealEvent } from "../supabase/functions/_shared/meal-domain.ts";
+import { buildMealRows, defaultMealPeriod, mealBenefitMonth, mealCalculationNote, mealCity, mealDailyRate, mealDays, mealPeriod, mealRateGroup, mealRateRule, mealToday, type MealCoverage, type MealEmployee, type MealEvent } from "../supabase/functions/_shared/meal-domain.ts";
 import { createMealRequester, extractMealAbsences, extractMealMedical, fetchMealUnit, mealDuration } from "../supabase/functions/sync-benefit-meal/quark.ts";
 import { buildMealReportXlsx } from "../src/services/benefit-meal-export";
 import type { MealRun } from "../src/services/benefit-meal";
@@ -35,7 +35,10 @@ test("counts distinct calendar dates clipped to the selected interval and preser
   assert.equal(rows[0].deduction_days, 3);
   assert.equal(rows[1].absence_days, 0);
   assert.equal(rows[1].medical_days, 0);
-  for (const row of rows) for (const field of ["planned_work_days", "payable_days", "daily_value", "amount_due"] as const) assert.equal(row[field], null);
+  for (const row of rows) {
+    for (const field of ["planned_work_days", "payable_days", "amount_due"] as const) assert.equal(row[field], null);
+    assert.equal(row.daily_value, 25); assert.equal(row.calculation_status, "PENDING");
+  }
 });
 
 test("unknown API responses never become zero and cross-type overlaps require review", () => {
@@ -49,17 +52,67 @@ test("unknown API responses never become zero and cross-type overlaps require re
   assert.equal(invalid.medical_days, null);
 });
 
-test("technical sectors use the supplied two-band rule only outside Recife; no four-band guesses", () => {
+test("approved rates recognize city, sector and job without assigning technical support to the technical band", () => {
   assert.equal(mealRateGroup("NATAL", "TECNICO DE CAMPO ADS E SERV"), "TECNICO");
   assert.equal(mealRateGroup("MOSSORÓ", "TÉCNICA AFASTADO"), "TECNICO");
   assert.equal(mealRateGroup("FORTALEZA", "COMERCIAL PAP"), "GERAL");
-  assert.equal(mealRateGroup("RECIFE", "TECNICO"), "RECIFE_PENDENTE");
-  assert.equal(mealRateGroup("RECIFE", "SUPORTE"), "RECIFE_PENDENTE");
+  assert.equal(mealRateGroup("RECIFE", "TECNICO"), "RECIFE_TECNICO");
+  assert.equal(mealRateGroup("RECIFE", "SUPORTE"), "REGRA_PENDENTE");
   assert.equal(mealRateGroup("NATAL", ""), "SETOR_PENDENTE");
   assert.equal(mealCity("DMV MOSSORO"), "MOSSORÓ");
   assert.equal(mealCity("RDT - FORTALEZA"), "FORTALEZA");
   assert.equal(mealCity("DMV RECIFE"), "RECIFE");
+  assert.equal(mealCity("Filial - Parnamirim"), "PARNAMIRIM");
+  assert.equal(mealCity("Filial - Panamirim"), "PARNAMIRIM");
   assert.equal(mealCity("unidade sem cidade"), "NÃO IDENTIFICADA");
+  for (const city of ["Natal", "Mossoró", "Parnamirim", "Panamirim", "Fortaleza"]) {
+    for (const job of ["TÉCNICO DE INSTALAÇÃO", "Técnica", "Auxiliar de instalação", "Supervisor técnico", "Supervisora de técnicos"]) assert.equal(mealRateRule(city, "", job).dailyCents, 2500);
+    assert.equal(mealRateRule(city, "SUPORTE TECNICO", "ANALISTA DE SUPORTE TECNICO").dailyCents, 2000);
+    assert.equal(mealRateRule(city, "COMERCIAL", "CONSULTOR DE VENDAS").dailyCents, 2000);
+  }
+  assert.equal(mealRateRule("RECIFE", "TECNICA").dailyCents, 2858);
+  assert.deepEqual(mealRateRule("RECIFE", "RH/DP"), { group: "RECIFE_ESTOQUE_RH", dailyCents: 2300, fixedDays: 22 });
+  assert.deepEqual(mealRateRule("RECIFE", "ESTOQUE"), mealRateRule("RECIFE", "RH/DP"));
+  for (const city of ["RECIFE", "JOÃO PESSOA", "MACEIÓ"]) {
+    for (const job of ["CONSULTOR DE VENDAS - PAP", "SUPERVISOR DE VENDAS", "CONSULTORA DE VENDAS"]) assert.equal(mealRateRule(city, "COMERCIAL", job).dailyCents, 2000);
+  }
+  assert.equal(mealRateRule("MACEIÓ", "TECNICA").dailyCents, null);
+  assert.equal(mealRateRule("JOÃO PESSOA", "RH").dailyCents, null);
+});
+
+test("Recife stock/RH has a fixed 22-day base and temporarily deducts both absences and medical dates", () => {
+  const person = { ...employee, external_unit_name: "DMV - RECIFE", department: "RH/DP", job_title: "Analista de RH" };
+  const [row] = buildMealRows([person], [event("FALTA", "2026-11-01"), event("ATESTADO", "2026-11-02", "2026-11-03")], [coverage], bounds);
+  assert.equal(row.daily_value, 23); assert.equal(row.planned_work_days, 22);
+  assert.equal(row.deduction_days, 3); assert.equal(row.payable_days, 19); assert.equal(row.amount_due, 437);
+  assert.equal(row.calculation_status, "READY"); assert.deepEqual(row.calculation_notes, []);
+  const [full] = buildMealRows([person], [], [coverage], bounds); assert.equal(full.amount_due, 506);
+  const [zero] = buildMealRows([person], [event("ATESTADO", bounds.start, bounds.end)], [coverage], bounds);
+  assert.equal(zero.payable_days, 0); assert.equal(zero.amount_due, 0); assert.equal(zero.calculation_status, "READY");
+  const [daily] = buildMealRows([{ ...person, department: "TECNICA", job_title: "Técnico" }], [], [coverage], bounds);
+  assert.equal(daily.daily_value, 28.58); assert.equal(daily.planned_work_days, null); assert.equal(daily.amount_due, null);
+});
+
+test("no final payment is guessed for open periods, unavailable sources, overlapping events or unconfirmed eligibility", () => {
+  const person = { ...employee, external_unit_name: "DMV - RECIFE", department: "ESTOQUE", job_title: "Estoquista" };
+  const variants = [
+    buildMealRows([person], [], [coverage], { start: bounds.start, end: "2026-11-09" }, { periodEnd: bounds.end })[0],
+    buildMealRows([person], [], [{ ...coverage, medical_ok: false }], bounds)[0],
+    buildMealRows([person], [event("FALTA", "2026-11-01"), event("ATESTADO", "2026-11-01")], [coverage], bounds)[0],
+    buildMealRows([{ ...person, status: "DESLIGADO" }], [], [coverage], bounds)[0],
+  ];
+  for (const row of variants) { assert.equal(row.daily_value, 23); assert.equal(row.payable_days, null); assert.equal(row.amount_due, null); assert.equal(row.calculation_status, "PENDING"); assert.ok(row.calculation_notes?.length); }
+  assert.match(mealCalculationNote({ ...variants[0], calculation_version: null, calculation_status: null, calculation_notes: [] }), /Consulta anterior sem cálculo/);
+});
+
+test("current-rate references never overwrite saved daily values, legacy totals or historical views", () => {
+  const [current] = buildMealRows([employee], [], [coverage], bounds);
+  const legacy = { ...current, daily_value: null, calculation_version: null, calculation_status: null };
+  assert.deepEqual(mealDailyRate(legacy, true), { value: 25, preview: true });
+  assert.deepEqual(mealDailyRate(legacy), { value: null, preview: false });
+  assert.equal(legacy.daily_value, null); assert.equal(legacy.amount_due, null);
+  assert.deepEqual(mealDailyRate({ ...legacy, daily_value: 19 }, true), { value: 19, preview: false });
+  assert.deepEqual(mealDailyRate({ ...current, daily_value: null }, true), { value: null, preview: false });
 });
 
 test("Quark daily absences preserve boundaries and source identities, not employee names", () => {
@@ -155,11 +208,22 @@ test("branded XLSX preserves all rows, text CPF, real dates, numeric zero and un
   assert.equal(sheet.B11.t, "s"); assert.equal(String(sheet.B11.v).replace(/\D/g, ""), "00000000001");
   assert.equal(sheet.E11.v, 0); assert.equal(sheet.E11.t, "n"); assert.equal(sheet.P11.t, "n");
   assert.equal(sheet.H11?.v ?? null, null); assert.equal(sheet.K11?.v ?? null, null);
+  assert.equal(sheet.J11.v, 25); assert.equal(sheet.J11.t, "n");
   assert.match(sheet["!ref"]!, /Q71$/);
   const zip = await JSZip.loadAsync(bytes);
   assert.ok(zip.file("xl/media/logo.png")); assert.ok(zip.file("xl/drawings/drawing1.xml"));
   assert.match(await zip.file("xl/worksheets/sheet1.xml")!.async("text"), /ySplit="10"/);
   assert.match(await zip.file("xl/styles.xml")!.async("text"), /FF991B1B/);
+  const [fixed] = buildMealRows([{ ...employee, department: "ESTOQUE", job_title: "Estoquista", external_unit_name: "RECIFE" }], [event("ATESTADO", bounds.start, bounds.end)], [coverage], bounds);
+  const fixedBook = XLSX.read(await buildMealReportXlsx({ run, rows: [fixed], maskCpf: false, logo, filters: "Todos" }), { type: "array" });
+  const fixedSheet = fixedBook.Sheets["Vale Alimentação"];
+  assert.equal(fixedSheet.H11.v, 22); assert.equal(fixedSheet.I11.v, 0); assert.equal(fixedSheet.J11.v, 23); assert.equal(fixedSheet.K11.v, 0); assert.equal(fixedSheet.K11.t, "n");
+  const legacy = { ...rows[0], daily_value: null, calculation_version: null, calculation_status: null };
+  const referenceSheet = XLSX.read(await buildMealReportXlsx({ run, rows: [legacy], maskCpf: false, logo, filters: "Todos", currentRates: true }), { type: "array" }).Sheets["Vale Alimentação"];
+  assert.equal(referenceSheet.J11.v, 25); assert.equal(referenceSheet.K11?.v ?? null, null); assert.match(referenceSheet.Q11.v, /Diária de referência/);
+  const historySheet = XLSX.read(await buildMealReportXlsx({ run, rows: [legacy], maskCpf: false, logo, filters: "Todos" }), { type: "array" }).Sheets["Vale Alimentação"];
+  assert.equal(historySheet.J11?.v ?? null, null); assert.doesNotMatch(historySheet.Q11.v, /Diária de referência/);
+  assert.equal(legacy.daily_value, null);
 });
 
 test("persistence is additive, RH-only and service-only; browser never holds provider credentials", async () => {

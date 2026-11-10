@@ -1,12 +1,20 @@
-import { mealGroupLabels, type MealRow } from "../../supabase/functions/_shared/meal-domain";
+import { mealCalculationNote, mealDailyRate, mealGroupLabels, type MealRow } from "../../supabase/functions/_shared/meal-domain";
 import type { MealRun } from "./benefit-meal";
+import type { MealRateVersion } from "../../supabase/functions/_shared/meal-policy";
 import { formatCpf } from "../utils/cpf";
 import { downloadFile } from "../utils/download";
 
 const dateLabel = (value: string) => value.split("-").reverse().join("/");
 const monthLabel = (value: string) => value.slice(0, 7).split("-").reverse().join("/");
 const timeLabel = (value: string | null) => value ? new Date(value).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "Não concluída";
-const pending = "Pendente: dias previstos de trabalho e valores diários ainda não informados pelo RH.";
+const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const rateReference = "Diária de referência pela regra atual; não registrada nesta consulta e sem recalcular dias ou totais salvos.";
+const rowNotes = (row: MealRow, currentRates?: boolean, rates?: MealRateVersion[], month?: string) => [mealDailyRate(row, currentRates, rates, month).preview ? rateReference : "", mealCalculationNote(row), ...row.issues].filter(Boolean).join(" ");
+function financialSummary(rows: MealRow[]) {
+  const ready = rows.filter(row => row.calculation_status === "READY" && row.amount_due !== null);
+  const total = ready.reduce((sum, row) => sum + Math.round(row.amount_due! * 100), 0) / 100;
+  return `${ready.length} de ${rows.length} cálculo(s) concluído(s). Total calculado: ${money(total)}. ${rows.length - ready.length} pendente(s); valores ausentes não são zero. Dias dos demais grupos ainda serão definidos pelo RH.`;
+}
 const headers = ["Funcionário", "CPF", "Setor / Equipe", "Cargo", "Faltas (dias)", "Atestados (dias)", "Dias para desconto", "Dias previstos", "Dias a pagar", "Valor diário (R$)", "Valor a receber (R$)", "Empresa / Unidade", "Cidade", "Situação", "Grupo", "Consulta até", "Observações"];
 const xml = (value: unknown) => Array.from(String(value ?? "")).filter(char => char.charCodeAt(0) >= 32 || [9, 10, 13].includes(char.charCodeAt(0))).join("").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 const cellName = (column: number, row: number) => {
@@ -17,10 +25,11 @@ const cellName = (column: number, row: number) => {
 const textCell = (ref: string, value: unknown, style: number) => `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`;
 const numericCell = (ref: string, value: number | null, style: number) => value === null ? `<c r="${ref}" s="${style}"/>` : `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
 const excelDate = (value: string) => (Date.parse(value + "T00:00:00Z") - Date.UTC(1899, 11, 30)) / 86400000;
-export type MealReport = { run: MealRun; rows: MealRow[]; maskCpf: boolean; logo: Uint8Array; filters: string };
+export type MealReport = { run: MealRun; rows: MealRow[]; maskCpf: boolean; logo: Uint8Array; filters: string; currentRates?: boolean; rates?: MealRateVersion[] };
 
 export async function buildMealReportXlsx(report: MealReport): Promise<Uint8Array> {
-  const { run, rows, maskCpf, logo, filters } = report;
+  const { run, rows, maskCpf, logo, filters, currentRates, rates } = report;
+  const month = run.benefit_month.slice(0, 7);
   if (!rows.length || !logo.length) throw new Error("O relatório precisa de funcionários e logotipo.");
   const { default: JSZip } = await import("jszip");
   const zip = new JSZip(), ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -40,12 +49,12 @@ export async function buildMealReportXlsx(report: MealReport): Promise<Uint8Arra
     `<row r="4" ht="22" customHeight="1">${textCell("B4", `Benefício: ${monthLabel(run.benefit_month)} | Ocorrências: ${dateLabel(run.period_start)} a ${dateLabel(run.period_end)}`, 3)}</row>`,
     `<row r="6" ht="22" customHeight="1">${textCell("A6", `Consulta: ${timeLabel(run.completed_at)} por ${run.triggered_by_name}. Dados até ${dateLabel(run.queried_through)}. Versão ${run.id}.`, 3)}</row>`,
     `<row r="7" ht="22" customHeight="1">${textCell("A7", `Filtros: ${filters}. ${rows.length} funcionário(s). Situação: ${run.status === "PARTIAL" ? "Consulta parcial" : "Consulta concluída"}.`, 3)}</row>`,
-    `<row r="8" ht="28" customHeight="1">${textCell("A8", pending + " " + run.warnings.join(" "), 8)}</row>`,
+    `<row r="8" ht="28" customHeight="1">${textCell("A8", financialSummary(rows) + " " + (rows.some(row => mealDailyRate(row, currentRates, rates, month).preview) ? rateReference + " " : "") + run.warnings.join(" "), 8)}</row>`,
     `<row r="10" ht="32" customHeight="1">${headers.map((header, column) => textCell(cellName(column, 10), header, 1)).join("")}</row>`,
   ];
   rows.forEach((row, index) => {
     const position = index + 11;
-    const values = [row.employee_name, formatCpf(row.cpf, maskCpf) || "CPF não informado", row.department, row.job_title, row.absence_days, row.medical_days, row.deduction_days, null, null, null, null, row.company, row.city, row.employment_status, mealGroupLabels[row.rate_group] ?? row.rate_group, excelDate(run.queried_through), [pending, ...row.issues].join(" ")];
+    const values = [row.employee_name, formatCpf(row.cpf, maskCpf) || "CPF não informado", row.department, row.job_title, row.absence_days, row.medical_days, row.deduction_days, row.planned_work_days, row.payable_days, mealDailyRate(row, currentRates, rates, month).value, row.amount_due, row.company, row.city, row.employment_status, mealGroupLabels[row.rate_group] ?? row.rate_group, excelDate(run.queried_through), rowNotes(row, currentRates, rates, month)];
     body.push(`<row r="${position}" ht="42" customHeight="1">${values.map((value, column) => {
       const ref = cellName(column, position);
       if (column >= 4 && column <= 10) return numericCell(ref, value as number | null, column >= 9 ? 6 : 5);
@@ -63,7 +72,8 @@ export async function buildMealReportXlsx(report: MealReport): Promise<Uint8Arra
 }
 
 export async function buildMealReportPdf(report: MealReport): Promise<Blob> {
-  const { run, rows, maskCpf, logo, filters } = report;
+  const { run, rows, maskCpf, logo, filters, currentRates, rates } = report;
+  const month = run.benefit_month.slice(0, 7);
   if (!rows.length || !logo.length) throw new Error("O relatório precisa de funcionários e logotipo.");
   const [pdfModule, fontModule] = await Promise.all([import("pdfmake/build/pdfmake"), import("pdfmake/build/vfs_fonts")]);
   const pdfmake = pdfModule.default; pdfmake.addVirtualFileSystem(fontModule.default);
@@ -71,29 +81,35 @@ export async function buildMealReportPdf(report: MealReport): Promise<Blob> {
   const logoUrl = "data:image/png;base64," + btoa(binary);
   const grouped = new Map<string, MealRow[]>();
   for (const row of rows) { const list = grouped.get(row.company) ?? []; list.push(row); grouped.set(row.company, list); }
-  const content: unknown[] = [{ text: pending, color: "#805900", fillColor: "#fff7e0", margin: [0, 0, 0, 10] }, { text: `Filtros: ${filters}. ${rows.length} funcionário(s).`, fontSize: 8, margin: [0, 0, 0, 8] }];
+  const content: unknown[] = [{ text: financialSummary(rows), color: "#805900", fillColor: "#fff7e0", margin: [0, 0, 0, 10] }, { text: `Filtros: ${filters}. ${rows.length} funcionário(s).`, fontSize: 8, margin: [0, 0, 0, 8] }];
+  if (rows.some(row => mealDailyRate(row, currentRates, rates, month).preview)) content.push({ text: "* " + rateReference, fontSize: 8, color: "#805900", margin: [0, 0, 0, 8] });
   if (run.warnings.length) content.push({ text: run.warnings.join(" "), color: "#805900", fontSize: 8, margin: [0, 0, 0, 8] });
   for (const [company, people] of grouped) {
-    const tableHeaders = ["Funcionário", "CPF", "Setor / Equipe", "Cargo", "Faltas", "Atestados", "Dias para desconto", "Dias previstos", "Valor a receber"];
-    const body: unknown[][] = [[{ text: company, colSpan: 9, bold: true, color: "#991b1b", fillColor: "#f7eeee" }, {}, {}, {}, {}, {}, {}, {}, {}], tableHeaders.map(text => ({ text, color: "#ffffff", fillColor: "#991b1b", bold: true, fontSize: 8 }))];
-    for (const person of people) body.push([
-      { stack: [{ text: person.employee_name, bold: true }, { text: `${person.employment_status} - ${person.city} - ${mealGroupLabels[person.rate_group] ?? person.rate_group}`, fontSize: 7, color: "#666666" }, ...(person.issues.length ? [{ text: person.issues.join(" "), fontSize: 7, color: "#805900" }] : [])] },
+    const tableHeaders = ["Funcionário", "CPF", "Setor / Equipe", "Cargo", "Faltas", "Atestados", "Dias desconto", "Dias previstos", "Dias a pagar", "Diária", "Valor a receber"];
+    const body: unknown[][] = [[{ text: company, colSpan: 11, bold: true, color: "#991b1b", fillColor: "#f7eeee" }, ...Array.from({ length: 10 }, () => ({}))], tableHeaders.map(text => ({ text, color: "#ffffff", fillColor: "#991b1b", bold: true, fontSize: 8 }))];
+    for (const person of people) {
+      const daily = mealDailyRate(person, currentRates, rates, month);
+      body.push([
+      { stack: [{ text: person.employee_name, bold: true }, { text: `${person.employment_status} - ${person.city} - ${mealGroupLabels[person.rate_group] ?? person.rate_group}`, fontSize: 7, color: "#666666" }, { text: rowNotes(person, currentRates, rates, month), fontSize: 7, color: "#805900" }] },
       formatCpf(person.cpf, maskCpf) || "Não informado", person.department || "-", person.job_title || "-",
       person.absence_days === null ? "Não consultado" : String(person.absence_days), person.medical_days === null ? "Não consultado" : String(person.medical_days),
-      person.deduction_days === null ? "Pendente" : String(person.deduction_days), "A definir", { text: "Pendente", color: "#805900" },
+      person.deduction_days === null ? "Pendente" : String(person.deduction_days), person.planned_work_days === null ? "A definir" : String(person.planned_work_days),
+      person.payable_days === null ? "Pendente" : String(person.payable_days), daily.value === null ? "A definir" : money(daily.value) + (daily.preview ? "*" : ""),
+      { text: person.amount_due === null ? "Pendente" : money(person.amount_due), color: person.amount_due === null ? "#805900" : "#222222" },
     ]);
-    content.push({ table: { headerRows: 2, dontBreakRows: true, widths: ["*", 75, 85, 85, 32, 38, 45, 45, 66], body }, layout: { hLineWidth: (index: number) => index < 3 ? 0.6 : 0.3, vLineWidth: () => 0, hLineColor: () => "#dddddd", paddingLeft: () => 4, paddingRight: () => 4, paddingTop: () => 5, paddingBottom: () => 5 }, margin: [0, 0, 0, 14] });
+    }
+    content.push({ table: { headerRows: 2, dontBreakRows: true, widths: ["*", 64, 70, 70, 28, 40, 34, 34, 34, 48, 64], body }, layout: { hLineWidth: (index: number) => index < 3 ? 0.6 : 0.3, vLineWidth: () => 0, hLineColor: () => "#dddddd", paddingLeft: () => 4, paddingRight: () => 4, paddingTop: () => 5, paddingBottom: () => 5 }, margin: [0, 0, 0, 14] });
   }
-  return pdfmake.createPdf({ pageSize: "A4", pageOrientation: "landscape", pageMargins: [28, 105, 28, 34], defaultStyle: { font: "Roboto", fontSize: 8, lineHeight: 1.15 }, info: { title: "Vale Alimentação " + monthLabel(run.benefit_month), author: "RH Controle - TechNET", subject: "Consulta de ocorrências, com valores e dias previstos pendentes" },
+  return pdfmake.createPdf({ pageSize: "A4", pageOrientation: "landscape", pageMargins: [28, 105, 28, 34], defaultStyle: { font: "Roboto", fontSize: 8, lineHeight: 1.15 }, info: { title: "Vale Alimentação " + monthLabel(run.benefit_month), author: "RH Controle - TechNET", subject: "Apuração de ocorrências, valores diários, cálculos e pendências por funcionário" },
     header: () => ({ margin: [28, 20, 28, 0], columns: [{ image: logoUrl, width: 42 }, { width: "*", stack: [{ text: "TechNET - Vale Alimentação", fontSize: 16, bold: true, color: "#991b1b" }, { text: `Benefício: ${monthLabel(run.benefit_month)}. Ocorrências: ${dateLabel(run.period_start)} a ${dateLabel(run.period_end)}.`, fontSize: 10 }, { text: `Consulta em ${timeLabel(run.completed_at)} por ${run.triggered_by_name}. Dados até ${dateLabel(run.queried_through)}.`, fontSize: 8 }, { text: `${run.status === "PARTIAL" ? "Consulta parcial" : "Consulta concluída"}. Versão: ${run.id}`, fontSize: 7, color: "#666666" }] }], columnGap: 12 }),
-    footer: (page: number, total: number) => ({ margin: [28, 10, 28, 0], columns: [{ text: "RH Controle - Dados de funcionários. Valores de pagamento ainda não calculados.", fontSize: 7 }, { text: `Página ${page} de ${total}`, alignment: "right", fontSize: 8 }] }), content,
+    footer: (page: number, total: number) => ({ margin: [28, 10, 28, 0], columns: [{ text: "RH Controle - Dados de funcionários. Consulte os cálculos e pendências desta versão.", fontSize: 7 }, { text: `Página ${page} de ${total}`, alignment: "right", fontSize: 8 }] }), content,
   }).getBlob();
 }
 
-export async function exportMealReport(run: MealRun, rows: MealRow[], maskCpf: boolean, kind: "pdf" | "xlsx", filters: string) {
+export async function exportMealReport(run: MealRun, rows: MealRow[], maskCpf: boolean, kind: "pdf" | "xlsx", filters: string, currentRates = false, rates?: MealRateVersion[]) {
   const response = await fetch("/logo-empresa-ui.png");
   if (!response.ok) throw new Error("Não foi possível carregar o logotipo do relatório.");
-  const logo = new Uint8Array(await response.arrayBuffer()), report = { run, rows, maskCpf, logo, filters };
+  const logo = new Uint8Array(await response.arrayBuffer()), report = { run, rows, maskCpf, logo, filters, currentRates, rates };
   const filename = `Vale_Alimentacao_${run.benefit_month.slice(0, 7)}_${run.period_start}_${run.period_end}.${kind}`;
   if (kind === "pdf") downloadFile(await buildMealReportPdf(report), filename, "application/pdf");
   else downloadFile(await buildMealReportXlsx(report), filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
