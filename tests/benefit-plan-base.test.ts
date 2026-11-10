@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivePayroll, ParsedWorkbook } from "../src/types";
-import {comparePlanBase,latestPlanBase,parsePlanBase,parsePlanValue,planBaseAtMonth,planMonth,type PlanBaseVersion} from "../src/modules/benefits/plan-base";
+import {comparePlanBase,latestPlanBase,parsePlanBase,parsePlanInvoice,parsePlanValue,planBaseAtMonth,planMonth,validatePlanInput,type PlanBaseVersion} from "../src/modules/benefits/plan-base";
 const cpf="52998224725",second="11144477735";
 const row=(patch:Partial<PlanBaseVersion>={}):PlanBaseVersion=>({id:"v1",kind:"health",cpf,name:"Pessoa fictícia",company:"",city:"",department:"",plan:"",value:100,status:"ATIVO",notes:"",metadata:{},effectiveFrom:"2026-09",revision:1,source:"Teste",createdAt:"2026-09-01T00:00:00Z",createdByName:"Teste",...patch});
 const payroll=(competence="10/2026",healthTotal=120):ActivePayroll=>({id:"payroll",fileName:"teste.xlsx",fileSize:1,competence,importedAt:"2026-10-01",importedBy:"Teste",logs:[],records:[{cpf,name:"Pessoa fictícia",healthTotal,dentalTotal:20,healthColumns:1,dentalColumns:1,liquid:3000,sourceSheet:"Folha"}]});
@@ -31,6 +31,51 @@ test("same-month edits use the latest revision and health/dental are independent
 test("Hapvida uses DESC FOLHA rather than FATURA, unit price or monthly fee",()=>{
   const imported=parsePlanBase(book(["NOME","CPF","BASE MENSALIDADE","FATURA","CO-PART.","DESC FOLHA"],[["Pessoa",cpf,999,888,10,123.45]]),"health");
   assert.equal(imported.records[0].value,123.45);assert.equal(imported.records[0].metadata.invoice,888);assert.equal(imported.records[0].metadata.valueColumn,"DESC FOLHA");
+});
+
+test("optional FATURA and OBS import independently of the payroll deduction in both plans",()=>{
+  for(const kind of ["health","dental"] as const){
+    const imported=parsePlanBase(book(["NOME","CPF","DESC FOLHA","FATURA","OBS"],[["Pessoa",cpf,120,"R$ 1.234,56","  Conferir dependente\nAutorizado pelo RH  "]]),kind);
+    assert.equal(imported.issues.length,0);
+    assert.equal(imported.records[0].metadata.invoice,1234.56);
+    assert.equal(imported.records[0].notes,"Conferir dependente\nAutorizado pelo RH");
+    const result=comparePlanBase(payroll("10/2026",120),[row({...imported.records[0],kind})],kind,.01);
+    assert.equal(result.rows[0].referenceValue,120,"Invoice must never replace the expected employee deduction");
+  }
+  for(const header of ["OBS.","Observação","Observações"]){
+    assert.equal(parsePlanBase(book(["NOME","CPF","VALOR",header],[["Pessoa",cpf,10,"Observação do RH"]]),"health").records[0].notes,"Observação do RH");
+  }
+});
+
+test("missing optional columns preserve the existing registration; explicit blank cells clear them",()=>{
+  const old=row({city:"Natal",department:"RH",plan:"Plano A",notes:"Conferir",metadata:{invoice:80,lives:2}});
+  const imported=parsePlanBase(book(["NOME","CPF","DESC FOLHA"],[["Pessoa",cpf,125]]),"health",[old]);
+  assert.deepEqual([imported.records[0].city,imported.records[0].department,imported.records[0].plan,imported.records[0].metadata.invoice,imported.records[0].notes],["Natal","RH","Plano A",80,"Conferir"]);
+  const cleared=parsePlanBase(book(["NOME","CPF","DESC FOLHA","FATURA","OBS","CIDADE"],[["Pessoa",cpf,125,"","",""]]),"health",[old]).records[0];
+  assert.equal(cleared.metadata.invoice,null);assert.equal(cleared.notes,"");assert.equal(cleared.city,"");assert.equal(cleared.department,"RH");
+  assert.equal(old.metadata.invoice,80);assert.equal(old.notes,"Conferir");
+  const newRecord=parsePlanBase(book(["NOME","CPF","VALOR"],[["Pessoa",cpf,10]]),"health").records[0];
+  assert.equal(newRecord.metadata.invoice,null);assert.equal(newRecord.notes,"");
+});
+
+test("optional invoice validation distinguishes blank from zero and identifies invalid input",()=>{
+  for(const value of [undefined,null,"","   "])assert.equal(parsePlanInvoice(value),null);
+  for(const value of [0,"0,00","R$ 0,00"])assert.equal(parsePlanInvoice(value),0);
+  for(const value of ["não informado","-1,00",-1,Infinity])assert.throws(()=>parsePlanInvoice(value),/FATURA/);
+  const invalid=parsePlanBase(book(["NOME","CPF","VALOR","FATURA"],[["Pessoa",cpf,10,"erro"],["Outra pessoa",second,20,0]]),"health");
+  assert.equal(invalid.records.length,1);assert.equal(invalid.records[0].metadata.invoice,0);assert.match(invalid.issues[0],/linha 5: Valor de FATURA inválido/);
+  assert.throws(()=>validatePlanInput(row({notes:"a".repeat(2001)})),/OBS/);
+  const revised=validatePlanInput(row({metadata:{invoice:"15,50",sourceSheet:"Base"},notes:"  Revisado  "}));
+  assert.equal(revised.metadata.invoice,15.5);assert.equal(revised.metadata.sourceSheet,"Base");assert.equal(revised.notes,"Revisado");
+});
+
+test("a named employee without CPF is identified in the preview, without importing totals or blank lines",()=>{
+  const imported=parsePlanBase(book(["NOME","CPF","DESC FOLHA","FATURA","OBS"],[
+    ["Pessoa sem CPF","",100,140,"Revisar"],["Pessoa válida",cpf,20,25,""],["TOTAL","",120,165,""],["","","","",""],
+  ]),"health");
+  assert.equal(imported.records.length,1);assert.equal(imported.records[0].cpf,cpf);
+  assert.equal(imported.sourceRows,2);assert.equal(imported.issues.length,1);
+  assert.match(imported.issues[0],/linha 5: CPF não informado; cadastro não importado/);
 });
 test("Odonto uses VALOR not VALOR UNI.; conflicting CPF becomes pending, never summed",()=>{
   const imported=parsePlanBase(book(["NOME","CPF","VALOR UNI.","VALOR"],[["Pessoa A",cpf,13.86,13.86],["Pessoa B",cpf,13.86,55.44],["Pessoa C",second,10,30]]),"dental");

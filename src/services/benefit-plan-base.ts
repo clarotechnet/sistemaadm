@@ -1,6 +1,6 @@
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import type { ComparisonKind } from "../modules/comparisons/processor";
-import { planMonth, validatePlanInput, type PlanBaseInput, type PlanBaseVersion } from "../modules/benefits/plan-base";
+import { normalizePlanName, planMonth, validatePlanInput, type PlanBaseInput, type PlanBaseVersion } from "../modules/benefits/plan-base";
 
 type Row = { id:string; kind:ComparisonKind; cpf:string; employee_name:string; company:string; city:string; department:string; plan_name:string; discount_value:number|string|null; status:PlanBaseInput["status"]; notes:string; metadata:Record<string,unknown>; effective_from:string; revision:number; source:string; created_at:string; created_by_name:string };
 export async function listPlanBase(kind: ComparisonKind): Promise<PlanBaseVersion[]> {
@@ -11,7 +11,7 @@ export async function listPlanBase(kind: ComparisonKind): Promise<PlanBaseVersio
     all.push(...(data??[]) as Row[]);
     if((data?.length??0)<500) break;
   }
-  return all.map(row=>({id:row.id,kind:row.kind,cpf:row.cpf,name:row.employee_name,company:row.company,city:row.city,department:row.department,plan:row.plan_name,value:row.discount_value===null?null:Number(row.discount_value),status:row.status,notes:row.notes,metadata:row.metadata??{},effectiveFrom:row.effective_from.slice(0,7),revision:row.revision,source:row.source,createdAt:row.created_at,createdByName:row.created_by_name}));
+  return all.map(row=>({id:row.id,kind:row.kind,cpf:row.cpf,name:row.employee_name,company:row.company,city:row.city,department:row.department,plan:normalizePlanName(row.plan_name),value:row.discount_value===null?null:Number(row.discount_value),status:row.status,notes:row.notes,metadata:row.metadata??{},effectiveFrom:row.effective_from.slice(0,7),revision:row.revision,source:row.source,createdAt:row.created_at,createdByName:row.created_by_name}));
 }
 
 export async function savePlanBase(kind:ComparisonKind, competence:string, records:PlanBaseInput[], source="Cadastro manual") {

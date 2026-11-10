@@ -14,6 +14,11 @@ export type PlanBaseVersion = PlanBaseInput & {
 };
 export type PlanBaseImport = { records: PlanBaseInput[]; issues: string[]; sourceRows: number; valueColumn: string };
 
+export function normalizePlanName(value: string): string {
+  const name = value.trim();
+  return /^(HV|HAPVIDA)$/i.test(name) ? "HAPVIDA" : name;
+}
+
 export function planMonth(value: string): string {
   if (/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return value;
   const match = value.match(/^(0[1-9]|1[0-2])\/(\d{4})$/);
@@ -50,17 +55,28 @@ export function parsePlanValue(value: unknown): number {
   return Math.round(Number(normalized) * 100) / 100;
 }
 
+export function parsePlanInvoice(value: unknown): number | null {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  try { return parsePlanValue(value); }
+  catch { throw new Error("Valor de FATURA inválido. Deixe em branco ou informe um valor maior ou igual a zero."); }
+}
+
 export function validatePlanInput(row: PlanBaseInput): PlanBaseInput {
   if (!isValidCpf(row.cpf)) throw new Error("Informe um CPF válido.");
   if (row.name.trim().length < 2) throw new Error("Informe o nome do funcionário.");
   if (!["ATIVO", "INATIVO", "EXCLUIDO", "PENDENTE"].includes(row.status)) throw new Error("Situação inválida.");
   if (row.status !== "PENDENTE" && Array.isArray(row.metadata.sourceConflicts) && row.name === "CPF com dados divergentes") throw new Error("Confirme o nome do funcionário com o RH antes de resolver a pendência.");
-  return { ...row, cpf: row.cpf.replace(/\D/g, ""), name: row.name.trim(), value: row.status === "PENDENTE" ? null : parsePlanValue(row.value) };
+  const notes = row.notes.trim();
+  if (notes.length > 2000) throw new Error("OBS deve ter no máximo 2000 caracteres.");
+  const metadata = { ...row.metadata };
+  if (Object.hasOwn(metadata, "invoice")) metadata.invoice = parsePlanInvoice(metadata.invoice);
+  return { ...row, cpf: row.cpf.replace(/\D/g, ""), name: row.name.trim(), plan: normalizePlanName(row.plan), value: row.status === "PENDENTE" ? null : parsePlanValue(row.value), notes, metadata };
 }
 
 // DESC FOLHA is the employee deduction, not invoice, unit price or monthly fee.
-export function parsePlanBase(workbook: ParsedWorkbook, kind: ComparisonKind): PlanBaseImport {
+export function parsePlanBase(workbook: ParsedWorkbook, kind: ComparisonKind, existing: readonly PlanBaseVersion[] = []): PlanBaseImport {
   const groups = new Map<string, PlanBaseInput[]>(), issues: string[] = [];
+  const previous = new Map(latestPlanBase(existing.filter(row => row.kind === kind)).map(row => [row.cpf, row]));
   let sourceRows = 0, valueColumn = "";
   for (const sheet of workbook.sheets) {
     const headers = sheet.headers.map(normalizeHeader);
@@ -69,21 +85,36 @@ export function parsePlanBase(workbook: ParsedWorkbook, kind: ComparisonKind): P
     const valueIndex = find(["DESC FOLHA", "DESCONTO FOLHA", "DESCONTO EM FOLHA", "FOLHA", "VALOR FOLHA", "VALOR", kind === "health" ? "PLANO DE SAUDE" : "PLANO ODONTOLOGICO"]);
     if (cpfIndex < 0 || nameIndex < 0 || valueIndex < 0) continue;
     valueColumn = sheet.headers[valueIndex];
-    const get = (row: unknown[], aliases: string[]) => String(row[find(aliases)] ?? "").trim();
+    const optional = (row: unknown[], aliases: string[], fallback: unknown = null) => {
+      const index = find(aliases);
+      return index < 0 ? fallback : row[index] ?? null;
+    };
+    const get = (row: unknown[], aliases: string[], fallback = "") => String(optional(row, aliases, fallback) ?? "").trim();
     for (const [index, row] of sheet.rows.entries()) {
       const rawCpf = String(row[cpfIndex] ?? "").trim();
-      if (!rawCpf) continue;
+      if (!rawCpf) {
+        const name = get(row, ["NOME", "COLABORADOR", "FUNCIONARIO"]);
+        if (name && !/^(TOTAL|TOTAIS|SUBTOTAL)\b/.test(normalizeHeader(name)) && String(row[valueIndex] ?? "").trim()) {
+          sourceRows++;
+          issues.push(`${sheet.name}, linha ${sheet.headerRow + index + 2}: CPF não informado; cadastro não importado.`);
+        }
+        continue;
+      }
       if (["CPF", "DESCONTO EM FOLHA", "RDT", "DMV", "VNA"].includes(normalizeHeader(rawCpf))) continue;
       sourceRows++;
       try {
         const digits = rawCpf.replace(/\D/g, "");
         if (digits.length > 11 || !/^\d[\d.\-\s]*$/.test(rawCpf)) throw new Error("CPF inválido");
-        const record = validatePlanInput({ cpf: normalizeCpf(rawCpf), name: get(row, ["NOME", "COLABORADOR", "FUNCIONARIO"]),
-          company: get(row, ["EMPRESA", "EMP"]), city: get(row, ["CIDADE"]), department: get(row, ["CENTRO DE CUSTO", "SETOR"]),
-          plan: get(row, ["PLANO", "OPERADORA"]), value: parsePlanValue(row[valueIndex]), status: "ATIVO", notes: "",
+        const cpf = normalizeCpf(rawCpf), old = previous.get(cpf);
+        const record = validatePlanInput({ cpf, name: get(row, ["NOME", "COLABORADOR", "FUNCIONARIO"]),
+          company: get(row, ["EMPRESA", "EMP"], old?.company), city: get(row, ["CIDADE"], old?.city), department: get(row, ["CENTRO DE CUSTO", "SETOR"], old?.department),
+          plan: get(row, ["PLANO", "OPERADORA"], old?.plan), value: parsePlanValue(row[valueIndex]), status: "ATIVO",
+          notes: get(row, ["OBS", "OBS.", "OBSERVACAO", "OBSERVACOES"], old?.notes),
           metadata: { sourceSheet: sheet.name, sourceRow: sheet.headerRow + index + 2, valueColumn: sheet.headers[valueIndex],
-            lives: row[find(["QT VIDAS", "QTD.", "QUANTIDADE"])] ?? null,
-            monthlyFee: row[find(["BASE MENSALIDADE"])] ?? null, invoice: row[find(["FATURA"])] ?? null, coparticipation: row[find(["CO-PART.", "COPARTICIPACAO"])] ?? null } });
+            lives: optional(row, ["QT VIDAS", "QTD.", "QUANTIDADE"], old?.metadata.lives),
+            monthlyFee: optional(row, ["BASE MENSALIDADE"], old?.metadata.monthlyFee),
+            invoice: optional(row, ["FATURA"], old?.metadata.invoice),
+            coparticipation: optional(row, ["CO-PART.", "COPARTICIPACAO"], old?.metadata.coparticipation) } });
         groups.set(record.cpf, [...(groups.get(record.cpf) ?? []), record]);
       } catch (error) { issues.push(`${sheet.name}, linha ${sheet.headerRow + index + 2}: ${error instanceof Error ? error.message : "Dados inválidos"}.`); }
     }

@@ -63,6 +63,8 @@ Saúde e Odonto têm **Base de dados** e **Conferência mensal**. O cadastro é 
 
 Na importação da Hapvida, **DESC FOLHA** é o valor esperado do desconto, sem confundir FATURA ou BASE MENSALIDADE. No Odonto, **VALOR** tem prioridade sobre VALOR UNI. Cabeçalhos repetidos e separadores não são pessoas. CPFs repetidos ficam **Pendentes RH**, sem soma automática nem valor de referência presumido, mantendo os lançamentos de origem para análise. A confirmação de importação não desativa pessoas ausentes do arquivo.
 
+As bases de Saúde e Odonto aceitam também **FATURA** (valor monetário opcional) e **OBS** (observações de até 2000 caracteres). Ambos aparecem na tabela e podem ser editados no cadastro, mantendo o histórico. FATURA é informativa e não entra no cálculo da conferência. Colunas opcionais ausentes no arquivo preservam os campos do cadastro na vigência em exibição; células explicitamente vazias limpam esses campos. Há filtros combináveis com múltipla seleção de cidade, setor e plano, além da pesquisa e da situação. Funcionários sem CPF ou com FATURA inválida são identificados na revisão da importação. Esses campos reutilizam `metadata.invoice` e `notes`; não exigem uma nova migração no Supabase.
+
 O Agregamento mensal mostra o último sucesso do QuarkRH por competência, responsável e ressalvas. Falhas posteriores não avançam a data do sucesso. A informação vem de `benefit_aggregation_sync_runs`, não do relógio do navegador.
 
 A migração aditiva está em `supabase/migrations/20261016153134_benefit_plan_bases.sql`. A verificação abaixo usa o projeto RH explicitamente confirmado, testa o SQL e RLS em transação revertida e não altera dados reais:

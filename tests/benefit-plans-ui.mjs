@@ -34,7 +34,7 @@ async function createFixture(viewport, hasPayroll = true, baseMode = "normal", o
   const actorToken=`${token.split(".")[0]}.${Buffer.from(JSON.stringify({sub:actor.id,exp:expires,iat:expires-3600})).toString("base64url")}.fictional-signature`;
   const actorSession={...session,user:actor,access_token:actorToken};
   const saved = options.shared?.saved ?? { health: comparison("health"), dental: comparison("dental") };
-  const base = options.shared?.base ?? ["health","dental"].map(kind=>({id:`base-${kind}`,kind,cpf:"52998224725",employee_name:"Funcionário Fictício",company:"Empresa teste",city:"Cidade teste",department:"RH",plan_name:"Plano teste",discount_value:kind==="health"?100:20,status:"ATIVO",notes:"",metadata:{},effective_from:"2026-09-01",revision:1,source:"Base teste",created_at:"2026-09-01T12:00:00Z",created_by_name:profile.full_name}));
+  const base = options.shared?.base ?? ["health","dental"].map(kind=>({id:`base-${kind}`,kind,cpf:"52998224725",employee_name:"Funcionário Fictício",company:"Empresa teste",city:"Cidade teste",department:"RH",plan_name:kind==="health"?"HV":"Plano teste",discount_value:kind==="health"?100:20,status:"ATIVO",notes:"",metadata:{},effective_from:"2026-09-01",revision:1,source:"Base teste",created_at:"2026-09-01T12:00:00Z",created_by_name:profile.full_name}));
   await context.addCookies([{ name: "sb-benefits-preview-auth-token", value: "base64-" + Buffer.from(JSON.stringify(actorSession)).toString("base64url"), url: baseUrl }]);
   await context.route("**/*", async route => {
     const request = route.request(), url = new URL(request.url());
@@ -79,6 +79,23 @@ async function createFixture(viewport, hasPayroll = true, baseMode = "normal", o
   await page.goto(baseUrl + "/benefits");
   await page.getByRole("heading", { name: "Benefícios", exact: true }).first().waitFor();
   return { context, page, base, saved };
+}
+
+async function planWorkbook(page, headers, rows) {
+  const bytes=await page.evaluate(async ({headers,rows})=>{
+    const XLSX=await import("/node_modules/xlsx/xlsx.mjs"),book=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([headers,...rows]),"Base");
+    return [...new Uint8Array(XLSX.write(book,{type:"array",bookType:"xlsx"}))];
+  },{headers,rows});
+  return {name:"base-planos-teste.xlsx",mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",buffer:Buffer.from(bytes)};
+}
+
+async function selectBaseFilter(page, label, values) {
+  await page.locator(".plan-base-filters").getByRole("button",{name:label,exact:true}).click();
+  const popup=page.getByRole("dialog",{name:`Filtrar por ${label}`,exact:true});
+  await popup.getByRole("button",{name:"Mostrar todas",exact:true}).click();
+  for(const value of values)await popup.getByRole("checkbox",{name:value,exact:true}).check();
+  await popup.getByRole("button",{name:"Concluir",exact:true}).click();
 }
 
 try {
@@ -189,9 +206,14 @@ try {
   await registry.page.getByRole("button",{name:"Editar Funcionário Fictício",exact:true}).click();
   const editor=registry.page.getByRole("dialog",{name:"Cadastro do plano",exact:true});
   await editor.getByLabel("Desconto mensal (R$)",{exact:true}).fill("130,00");
+  await editor.getByLabel("FATURA (R$) · opcional",{exact:true}).fill("140,80");
+  await editor.getByLabel("OBS · observações (opcional)",{exact:true}).fill("Atualização do RH");
   await editor.getByRole("button",{name:"Salvar cadastro",exact:true}).click();
   await editor.waitFor({state:"hidden"});
   assert.equal(baseSaves.at(-1).p_records[0].value,130);
+  assert.equal(baseSaves.at(-1).p_records[0].metadata.invoice,140.8);
+  assert.equal(baseSaves.at(-1).p_records[0].notes,"Atualização do RH");
+  assert.deepEqual(registry.base[0].metadata,{},"Editing creates a new version without changing the original invoice or notes");
   assert.equal(baseSaves.at(-1).p_effective_from,"2026-10-01");
   await colleague.page.evaluate(()=>window.dispatchEvent(new Event("focus")));
   await colleague.page.locator(".plan-live-result tbody td").filter({hasText:/130,00/}).waitFor();
@@ -237,10 +259,84 @@ try {
   assert.match(await registry.page.locator(".plan-base-table tbody").textContent(),/EXCLUIDO/);
   await registry.page.locator(".benefit-module-tabs").getByRole("button",{name:/Agregamento/}).click();
   await registry.page.locator(".benefit-inner-tabs").getByRole("button",{name:"Agregamentos mensal",exact:true}).click();
+  await registry.page.locator('input[type="month"]').fill("2026-10");
   await registry.page.getByText(/Última atualização pelo QuarkRH:/).waitFor();
-  assert.match(await registry.page.locator(".benefit-sync-notice").textContent(),/15\/10\/2026/);
-  assert.match(await registry.page.locator(".benefit-sync-notice").textContent(),/falhou/);
+  const quarkNotice=registry.page.locator(".benefit-sync-notice").filter({hasText:"Última atualização pelo QuarkRH"});
+  assert.match(await quarkNotice.textContent(),/15\/10\/2026/);
+  assert.match(await quarkNotice.textContent(),/falhou/);
   await registry.context.close();
+
+  for(const kind of ["health","dental"]){
+    const imported=await createFixture({width:1366,height:900}),p=imported.page;
+    await p.locator(".benefit-module-tabs").getByRole("button",{name:kind==="health"?/Plano de Saúde/:/Plano Odontológico/}).click();
+    await p.locator(".plan-base-toolbar input[type=month]").fill("2026-10");
+    const file=await planWorkbook(p,["NOME","CPF","DESC FOLHA","PLANO","EMPRESA","CIDADE","SETOR","FATURA","OBS"],[
+      ["Funcionário Fictício","52998224725",100,"Unimed","VNA","Natal","Técnica","124,50","Conferido pelo RH"],
+      ["Pessoa de Recife","11144477735",20,"HV","DMV","Recife","RH",0,""],
+      ["Pessoa de Natal","12345678909",30,"Unimed","VNA","Natal","RH","","Observação detalhada para a equipe. ".repeat(6)],
+      ["Pessoa sem CPF","",10,"Unimed","VNA","Natal","RH",15,"Informar CPF"],
+    ]);
+    await p.locator(".plan-base-actions input[type=file]").setInputFiles(file);
+    await p.getByText(/CPF não informado; cadastro não importado/).waitFor();
+    await p.getByRole("button",{name:"Confirmar importação",exact:true}).click();
+    await p.getByText("Base importada",{exact:true}).waitFor();
+    const table=p.locator(".plan-base-table"),rows=table.locator("tbody tr");
+    await rows.nth(2).waitFor();
+    assert.equal(await rows.count(),3);
+    assert.equal(await table.getByRole("columnheader",{name:"FATURA",exact:true}).count(),1);
+    assert.equal(await table.getByRole("columnheader",{name:"OBS",exact:true}).count(),1);
+    const first=rows.filter({hasText:"Funcionário Fictício"});
+    assert.match(await first.locator('[data-label="FATURA"]').textContent(),/124,50/);
+    assert.equal(await first.locator('[data-label="OBS"]').textContent(),"Conferido pelo RH");
+    assert.match(await rows.filter({hasText:"Pessoa de Recife"}).locator('[data-label="FATURA"]').textContent(),/0,00/);
+    assert.equal(await rows.filter({hasText:"Pessoa de Natal"}).locator('[data-label="FATURA"]').textContent(),"—");
+    await selectBaseFilter(p,"Cidade",["Natal"]);assert.equal(await rows.count(),2);
+    await p.locator(".plan-base-toolbar input[type=month]").fill("2026-08");
+    assert.equal(await rows.count(),0);
+    assert.equal(await p.locator(".plan-base-filters").getByRole("button",{name:"Cidade",exact:true}).textContent(),"Natal","A selected city stays visible when the displayed month has no entries");
+    await p.locator(".plan-base-toolbar input[type=month]").fill("2026-10");
+    await selectBaseFilter(p,"Setor",["RH"]);assert.equal(await rows.count(),1);
+    assert.match(await rows.textContent(),/Pessoa de Natal/);
+    await selectBaseFilter(p,"Plano",["HAPVIDA"]);assert.equal(await rows.count(),0);
+    await p.getByRole("button",{name:"Limpar filtros",exact:true}).click();assert.equal(await rows.count(),3);
+    await selectBaseFilter(p,"Cidade",["Natal","Recife"]);
+    await selectBaseFilter(p,"Setor",["Técnica","RH"]);
+    await selectBaseFilter(p,"Plano",["Unimed"]);assert.equal(await rows.count(),2,"OR within each filter and AND across filters");
+    await p.getByRole("button",{name:"Limpar filtros",exact:true}).click();
+    await p.getByLabel("Pesquisar cadastro do plano",{exact:true}).fill("Conferido pelo RH");assert.equal(await rows.count(),1);
+    await p.getByRole("button",{name:"Limpar filtros",exact:true}).click();
+    const update=await planWorkbook(p,["NOME","CPF","DESC FOLHA"],[["Funcionário Fictício","52998224725",105]]);
+    await p.locator(".plan-base-actions input[type=file]").setInputFiles(update);
+    await p.getByRole("button",{name:"Confirmar importação",exact:true}).click();
+    await p.getByRole("region",{name:"Conferir importação da base"}).waitFor({state:"hidden"});
+    const savedRow=baseSaves.at(-1).p_records[0];
+    assert.deepEqual([savedRow.city,savedRow.department,savedRow.plan,savedRow.metadata.invoice,savedRow.notes],["Natal","Técnica","Unimed",124.5,"Conferido pelo RH"]);
+    assert.equal(savedRow.value,105);assert.equal(await rows.count(),3,"Importing one CPF must preserve employees omitted from the file");
+    await p.getByRole("button",{name:"Editar Funcionário Fictício",exact:true}).click();
+    const form=p.getByRole("dialog",{name:"Cadastro do plano",exact:true});
+    assert.equal(await form.getByLabel("FATURA (R$) · opcional",{exact:true}).inputValue(),"124,50");
+    await form.getByLabel("FATURA (R$) · opcional",{exact:true}).fill("");
+    await form.getByLabel("OBS · observações (opcional)",{exact:true}).fill("Observação revisada");
+    await form.getByRole("button",{name:"Salvar cadastro",exact:true}).click();
+    await form.waitFor({state:"hidden"});
+    assert.equal(baseSaves.at(-1).p_records[0].metadata.invoice,null);assert.equal(baseSaves.at(-1).p_records[0].value,105);
+    assert.equal(await first.locator('[data-label="FATURA"]').textContent(),"—");
+    assert.equal(await first.locator('[data-label="OBS"]').textContent(),"Observação revisada");
+    if(kind==="health"){
+      if(process.env.BENEFIT_BASE_SCREENSHOT)await p.screenshot({path:process.env.BENEFIT_BASE_SCREENSHOT,fullPage:true});
+      for(const width of [1366,1024,390]){
+        await p.setViewportSize({width,height:900});
+        assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Base filters and table fit the page at ${width}px`);
+        assert.ok(await p.locator(".plan-base-scroll").evaluate(el=>el.scrollWidth<=el.clientWidth+1),`All base fields fit without horizontal scrolling at ${width}px`);
+        if(process.env.BENEFIT_BASE_SCREENSHOT&&width!==1366)await p.screenshot({path:process.env.BENEFIT_BASE_SCREENSHOT.replace(/\.png$/,`-${width}.png`),fullPage:true});
+      }
+      await p.getByRole("button",{name:"Ativar tema escuro",exact:true}).click();
+      await selectBaseFilter(p,"Cidade",["Recife"]);assert.equal(await rows.count(),1);
+      assert.equal(await p.locator(".plan-base-filters").getByRole("button",{name:"Cidade",exact:true}).textContent(),"Recife");
+      if(process.env.BENEFIT_BASE_SCREENSHOT)await p.screenshot({path:process.env.BENEFIT_BASE_SCREENSHOT.replace(/\.png$/,"-dark-mobile.png"),fullPage:true});
+    }
+    await imported.context.close();
+  }
   for(const [kind,file,expected] of [["health",process.env.BENEFIT_HEALTH_FILE,127],["dental",process.env.BENEFIT_DENTAL_FILE,209]])if(file){
     const imported=await createFixture({width:1366,height:768});
     await imported.page.locator(".benefit-module-tabs").getByRole("button",{name:kind==="health"?/Plano de Saúde/:/Plano Odontológico/}).click();
@@ -255,7 +351,7 @@ try {
   }
   assert.deepEqual(errors, []);
   assert.deepEqual(unexpectedHosts, []);
-  console.log("Benefit plans UI passed: automatic base comparisons, month selection, independent plans, recalculation after edits, snapshot preservation, no upload, filters, tolerance, export, unavailable data, registry history and responsive layout.");
+  console.log("Benefit plans UI passed: automatic comparisons, independent plans, invoice/notes import and editing, optional columns preserved, combined multiselect filters, registry history, snapshot preservation and responsive layout.");
 } catch(error) {
   for(const context of browser.contexts())for(const page of context.pages())if(!page.isClosed())console.log(JSON.stringify({url:page.url(),dialogs:await page.getByRole("dialog").allTextContents(),labels:await page.locator(".plan-base-editor label").allTextContents(),pageErrors:errors}));
   throw error;

@@ -1,0 +1,36 @@
+.plan-base-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:0 14px 14px}
+.plan-base-import-help{margin:0;padding:0 14px 14px;color:var(--muted);font-size:11px;line-height:1.6}
+.plan-base-scroll{max-width:100%;min-width:0}
+.plan-base-table{table-layout:fixed;width:100%;min-width:0}
+.plan-base-table th,.plan-base-table td{padding:12px 8px;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
+.plan-base-table th:nth-child(1){width:15%}
+.plan-base-table th:nth-child(2){width:10%}
+.plan-base-table th:nth-child(3){width:9%}
+.plan-base-table th:nth-child(4){width:12%}
+.plan-base-table th:nth-child(5),.plan-base-table th:nth-child(6){width:8%}
+.plan-base-table th:nth-child(7){width:12%}
+.plan-base-table th:nth-child(8),.plan-base-table th:nth-child(10){width:7%}
+.plan-base-table th:nth-child(9),.plan-base-table th:nth-child(11){width:6%}
+.plan-base-table td>strong{max-width:none}
+.plan-base-table .row-actions{flex-wrap:wrap;gap:6px}
+.plan-base-table .row-actions button{min-width:27px;padding:5px}
+.plan-base-table .plan-base-notes{white-space:pre-wrap;font-size:11px;line-height:1.5}
+.plan-base-notes summary{cursor:pointer}
+.plan-base-notes p{margin:8px 0 0;font-size:inherit;color:var(--text)}
+.plan-base-form .plan-base-notes-field{grid-column:1/-1}
+.plan-base-notes-field textarea{width:100%;resize:vertical;min-height:88px;box-sizing:border-box}
+@media(max-width:1100px){
+  .plan-base-table,.plan-base-table tbody{display:block}
+  .plan-base-table thead{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%)}
+  .plan-base-table tbody tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:16px;border-bottom:1px solid var(--border)}
+  .plan-base-table td{display:block;width:auto;height:auto;padding:0!important;border:0!important;text-align:left}
+  .plan-base-table td.right{text-align:left}
+  .plan-base-table td::before{content:attr(data-label);display:block;margin-bottom:5px;color:var(--muted);font-family:inherit;font-size:10px;font-weight:600}
+  .plan-base-table td[data-label="Funcionário"],.plan-base-table td[data-label="OBS"]{grid-column:1/-1}
+  .plan-base-table .row-actions{justify-content:flex-start}
+  .plan-base-table .row-actions button{min-width:34px;min-height:34px}
+}
+@media(max-width:600px){
+  .plan-base-filters{grid-template-columns:minmax(0,1fr)}
+  .plan-base-table tbody tr{gap:16px 12px}
+}
