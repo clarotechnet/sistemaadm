@@ -3,15 +3,18 @@
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
+import { normalizeText } from "../../../src/utils/text";
 import "./multi-select-filter.css";
 
 type Option = { value: string; label: string };
-type Props = { label: string; ariaLabel?: string; allLabel: string; pluralLabel: string; options: Option[]; values: string[]; onChange: (values: string[]) => void };
+type Props = { label: string; ariaLabel?: string; allLabel: string; pluralLabel: string; options: Option[]; values: string[]; onChange: (values: string[]) => void; searchable?: boolean; searchPlaceholder?: string };
 
-export function MultiSelectFilter({ label, ariaLabel = label, allLabel, pluralLabel, options, values, onChange }: Props) {
+export function MultiSelectFilter({ label, ariaLabel = label, allLabel, pluralLabel, options, values, onChange, searchable = false, searchPlaceholder = "Pesquisar opções" }: Props) {
   const id = useId(), trigger = useRef<HTMLButtonElement>(null), popup = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false), [position, setPosition] = useState<CSSProperties>({});
+  const [search, setSearch] = useState("");
   const selected = options.filter(option => values.includes(option.value));
+  const visibleOptions = searchable && search.trim() ? options.filter(option => normalizeText(option.label).includes(normalizeText(search))) : options;
   const summary = !values.length || selected.length === options.length ? allLabel : selected.length === 1 ? selected[0].label : `${selected.length} ${pluralLabel}`;
   const updatePosition = useCallback(() => {
     const rect = trigger.current?.getBoundingClientRect();
@@ -48,16 +51,18 @@ export function MultiSelectFilter({ label, ariaLabel = label, allLabel, pluralLa
 
   return <div className="meal-filter multi-filter">
     <span id={id + "-label"}>{label}</span>
-    <button ref={trigger} type="button" className="multi-filter-trigger" aria-label={ariaLabel} aria-describedby={id + "-summary"} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} disabled={!options.length} title={selected.map(option => option.label).join(", ") || allLabel} onClick={() => { if (open) close(); else { updatePosition(); setOpen(true); } }}>
+    <button ref={trigger} type="button" className="multi-filter-trigger" aria-label={ariaLabel} aria-describedby={id + "-summary"} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} disabled={!options.length} title={selected.map(option => option.label).join(", ") || allLabel} onClick={() => { if (open) close(); else { setSearch(""); updatePosition(); setOpen(true); } }}>
       <span id={id + "-summary"}>{summary}</span><ChevronDown size={16} aria-hidden="true" />
     </button>
     {open && createPortal(<div ref={popup} id={id} className="multi-filter-popup" style={position} role="dialog" aria-label={`Filtrar por ${ariaLabel}`}>
-      <div className="multi-filter-header"><strong>{label}</strong><button type="button" onClick={() => onChange([])}>Mostrar todas</button></div>
+      <div className="multi-filter-header"><strong>{label}</strong><button type="button" onClick={() => { onChange([]); setSearch(""); }}>Mostrar todas</button></div>
+      {searchable && <div className="multi-filter-search"><input type="search" aria-label={`Pesquisar em ${ariaLabel}`} placeholder={searchPlaceholder} value={search} onChange={event => setSearch(event.target.value)} /></div>}
       <div className="multi-filter-options" role="group" aria-label={`Opções de ${ariaLabel}`}>
-        {options.map(option => <label className="multi-filter-option" key={option.value}>
+        {visibleOptions.map(option => <label className="multi-filter-option" key={option.value}>
           <input type="checkbox" checked={values.includes(option.value)} onChange={event => onChange(event.target.checked ? [...values, option.value] : values.filter(value => value !== option.value))} />
           <span>{option.label}</span>
         </label>)}
+        {!visibleOptions.length && <p className="multi-filter-empty" role="status">Nenhuma opção corresponde à pesquisa.</p>}
       </div>
       <div className="multi-filter-footer"><span>{values.length ? `${selected.length} selecionada(s)` : allLabel}</span><button type="button" onClick={close}>Concluir</button></div>
     </div>, document.body)}

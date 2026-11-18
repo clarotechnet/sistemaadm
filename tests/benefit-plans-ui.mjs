@@ -2,6 +2,8 @@
 // Run Vite's Hostinger config with VITE_SUPABASE_URL=https://benefits-preview.supabase.co.
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
+import { readFile } from "node:fs/promises";
+import * as XLSX from "xlsx";
 
 const { chromium } = process.env.PLAYWRIGHT_PATH
   ? await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href)
@@ -270,11 +272,11 @@ try {
     const imported=await createFixture({width:1366,height:900}),p=imported.page;
     await p.locator(".benefit-module-tabs").getByRole("button",{name:kind==="health"?/Plano de Saúde/:/Plano Odontológico/}).click();
     await p.locator(".plan-base-toolbar input[type=month]").fill("2026-10");
-    const file=await planWorkbook(p,["NOME","CPF","DESC FOLHA","PLANO","EMPRESA","CIDADE","SETOR","FATURA","OBS"],[
-      ["Funcionário Fictício","52998224725",100,"Unimed","VNA","Natal","Técnica","124,50","Conferido pelo RH"],
-      ["Pessoa de Recife","11144477735",20,"HV","DMV","Recife","RH",0,""],
-      ["Pessoa de Natal","12345678909",30,"Unimed","VNA","Natal","RH","","Observação detalhada para a equipe. ".repeat(6)],
-      ["Pessoa sem CPF","",10,"Unimed","VNA","Natal","RH",15,"Informar CPF"],
+    const file=await planWorkbook(p,["NOME","CPF","DESC FOLHA","PLANO","EMPRESA","CIDADE","SETOR","FATURA","OBS","COPARTICIPACAO","COMPETENCIA COPARTICIPACAO"],[
+      ["Funcionário Fictício","52998224725",100,"Unimed","VNA","Natal","Técnica","124,50","Conferido pelo RH",12.5,"10/2026"],
+      ["Pessoa de Recife","11144477735",20,"HV","DMV","Recife","RH",0,"",0,"10/2026"],
+      ["Pessoa de Natal","12345678909",30,"Unimed","VNA","Natal","RH","","Observação detalhada para a equipe. ".repeat(6),"","10/2026"],
+      ["Pessoa sem CPF","",10,"Unimed","VNA","Natal","RH",15,"Informar CPF","",""],
     ]);
     await p.locator(".plan-base-actions input[type=file]").setInputFiles(file);
     await p.getByText(/CPF não informado; cadastro não importado/).waitFor();
@@ -290,6 +292,43 @@ try {
     assert.equal(await first.locator('[data-label="OBS"]').textContent(),"Conferido pelo RH");
     assert.match(await rows.filter({hasText:"Pessoa de Recife"}).locator('[data-label="FATURA"]').textContent(),/0,00/);
     assert.equal(await rows.filter({hasText:"Pessoa de Natal"}).locator('[data-label="FATURA"]').textContent(),"—");
+    assert.match(await first.locator('[data-label="Coparticipação"]').textContent(),/12,50/);
+    await first.getByRole("button",{name:/Editar coparticipação/}).click();
+    const copartForm=p.getByRole("dialog",{name:"Editar coparticipação mensal",exact:true});
+    await copartForm.getByLabel("Coparticipação mensal (R$)",{exact:true}).fill("34,90");
+    await copartForm.getByRole("button",{name:"Salvar coparticipação",exact:true}).click();
+    await copartForm.waitFor({state:"hidden"});
+    assert.equal(baseSaves.at(-1).p_records[0].metadata.coparticipationOnly,true);
+    assert.equal(baseSaves.at(-1).p_records[0].metadata.coparticipationMonth,"2026-10");
+    assert.match(await first.locator('[data-label="Coparticipação"]').textContent(),/34,90/);
+    assert.match(await first.locator('[data-label="Desconto previsto"]').textContent(),/100,00/);
+    assert.equal(await rows.count(),3,"Monthly detail must not replace or duplicate registrations");
+    await p.locator(".plan-base-toolbar input[type=month]").fill("2026-11");
+    assert.match(await first.locator('[data-label="Coparticipação"]').textContent(),/^—/);
+    const financialRow=imported.base.find(row=>row.kind===kind&&row.cpf==="52998224725"&&!row.metadata.coparticipationOnly);
+    imported.base.push({...financialRow,id:`future-${kind}`,discount_value:160,effective_from:"2026-12-01",revision:imported.base.filter(row=>row.kind===kind&&row.cpf==="52998224725").length+1,metadata:{invoice:124.5}});
+    await first.getByRole("button",{name:/Editar coparticipação/}).click();
+    await copartForm.getByLabel("Coparticipação mensal (R$)",{exact:true}).fill("15,40");
+    await copartForm.getByRole("button",{name:"Salvar coparticipação",exact:true}).click();
+    await copartForm.waitFor({state:"hidden"});
+    assert.equal(baseSaves.at(-1).p_records[0].value,160,"Read the current tariff before saving detail from an older displayed month");
+    assert.equal(baseSaves.at(-1).p_effective_from,"2026-12-01","Keep the registration effective date for compatibility with older clients");
+    assert.match(await first.locator('[data-label="Coparticipação"]').textContent(),/15,40/);
+    await p.locator(".plan-base-toolbar input[type=month]").fill("2026-10");
+    assert.match(await first.locator('[data-label="Coparticipação"]').textContent(),/34,90/);
+    await p.getByRole("button",{name:"Editar Funcionário Fictício",exact:true}).click();
+    const fullCopartForm=p.getByRole("dialog",{name:"Cadastro do plano",exact:true});
+    await fullCopartForm.getByLabel("Coparticipação (R$) · opcional",{exact:true}).fill("35,70");
+    await fullCopartForm.getByRole("button",{name:"Salvar cadastro",exact:true}).click();
+    await fullCopartForm.waitFor({state:"hidden"});
+    assert.equal(baseSaves.at(-1).p_records[0].metadata.coparticipationOnly,true,"Editing only monthly detail in the main editor must not replace the financial base either");
+    assert.match(await first.locator('[data-label="Coparticipação"]').textContent(),/35,70/);
+    assert.match(await first.locator('[data-label="Desconto previsto"]').textContent(),/100,00/);
+    await p.locator(".benefit-inner-tabs").getByRole("button",{name:"Conferência mensal",exact:true}).click();
+    const currentResult=p.locator(".plan-live-result tbody tr").filter({hasText:"Funcionário Fictício"});
+    await currentResult.waitFor();
+    assert.match(await currentResult.locator("td").nth(3).textContent(),/160,00/,"Monthly detail does not replace the latest tariff or get added to DESC FOLHA");
+    await p.locator(".benefit-inner-tabs").getByRole("button",{name:"Base de dados",exact:true}).click();
     await selectBaseFilter(p,"Cidade",["Natal"]);assert.equal(await rows.count(),2);
     await p.locator(".plan-base-toolbar input[type=month]").fill("2026-08");
     assert.equal(await rows.count(),0);
@@ -302,6 +341,25 @@ try {
     await selectBaseFilter(p,"Cidade",["Natal","Recife"]);
     await selectBaseFilter(p,"Setor",["Técnica","RH"]);
     await selectBaseFilter(p,"Plano",["Unimed"]);assert.equal(await rows.count(),2,"OR within each filter and AND across filters");
+    const baseDownloadPromise=p.waitForEvent("download");
+    await p.getByRole("button",{name:"Exportar base para fatura (.xlsx)",exact:true}).click();
+    const baseDownload=await baseDownloadPromise;
+    assert.equal(baseDownload.suggestedFilename(),`Base_${kind==="health"?"Plano_de_Saude":"Plano_Odontologico"}_2026-10.xlsx`);
+    const exported=XLSX.read(await readFile(await baseDownload.path()),{type:"buffer"});
+    const exportedRows=XLSX.utils.sheet_to_json(exported.Sheets.Base,{defval:null});
+    assert.equal(exportedRows.length,2);assert.equal(exportedRows[0].PLANO,"Unimed");
+    assert.equal(exportedRows[0]["DESC FOLHA"],100);assert.equal(exportedRows[0].COPARTICIPACAO,35.7);
+    assert.equal(exportedRows[0].FATURA,124.5);assert.equal(exportedRows[0].OBS,"Conferido pelo RH");
+    assert.equal(exportedRows[0]["COMPETENCIA COPARTICIPACAO"],"10/2026");
+    const modelDownloadPromise=p.waitForEvent("download");
+    await p.getByRole("button",{name:"Baixar modelo de importação (.xlsx)",exact:true}).click();
+    const modelDownload=await modelDownloadPromise;
+    const model=XLSX.read(await readFile(await modelDownload.path()),{type:"buffer"});
+    assert.equal(model.Sheets.Base.A2,undefined);assert.equal(model.Sheets.Base.I1.v,"COPARTICIPACAO");
+    assert.ok(model.SheetNames.includes("Como importar"));
+    await p.getByLabel("Mostrar histórico de versões").check();
+    assert.equal(await p.getByRole("button",{name:"Exportar base para fatura (.xlsx)",exact:true}).isDisabled(),true);
+    await p.getByLabel("Mostrar histórico de versões").uncheck();
     await p.getByRole("button",{name:"Limpar filtros",exact:true}).click();
     await p.getByLabel("Pesquisar cadastro do plano",{exact:true}).fill("Conferido pelo RH");assert.equal(await rows.count(),1);
     await p.getByRole("button",{name:"Limpar filtros",exact:true}).click();
@@ -312,6 +370,7 @@ try {
     const savedRow=baseSaves.at(-1).p_records[0];
     assert.deepEqual([savedRow.city,savedRow.department,savedRow.plan,savedRow.metadata.invoice,savedRow.notes],["Natal","Técnica","Unimed",124.5,"Conferido pelo RH"]);
     assert.equal(savedRow.value,105);assert.equal(await rows.count(),3,"Importing one CPF must preserve employees omitted from the file");
+    assert.match(await first.locator('[data-label="Coparticipação"]').textContent(),/35,70/,"A mass adjustment without COPART preserves that month's detail");
     await p.getByRole("button",{name:"Editar Funcionário Fictício",exact:true}).click();
     const form=p.getByRole("dialog",{name:"Cadastro do plano",exact:true});
     assert.equal(await form.getByLabel("FATURA (R$) · opcional",{exact:true}).inputValue(),"124,50");
@@ -351,7 +410,7 @@ try {
   }
   assert.deepEqual(errors, []);
   assert.deepEqual(unexpectedHosts, []);
-  console.log("Benefit plans UI passed: automatic comparisons, independent plans, invoice/notes import and editing, optional columns preserved, combined multiselect filters, registry history, snapshot preservation and responsive layout.");
+  console.log("Benefit plans UI passed: monthly coparticipation editing in both dialogs, financial base preservation, filtered invoice exports, import templates, automatic comparisons, registry history and responsive layout.");
 } catch(error) {
   for(const context of browser.contexts())for(const page of context.pages())if(!page.isClosed())console.log(JSON.stringify({url:page.url(),dialogs:await page.getByRole("dialog").allTextContents(),labels:await page.locator(".plan-base-editor label").allTextContents(),pageErrors:errors}));
   throw error;

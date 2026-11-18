@@ -22,6 +22,11 @@ const countLabel = (value: number | null) => value === null ? "Não consultado" 
 const situationOptions = [{ value: "ATIVO", label: "Ativos" }, { value: "DESLIGADO", label: "Desligados" }];
 const currency = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const pendingReason = (row: MealRow) => row.calculation_version == null ? "Consulta anterior às regras atuais" : row.issues.length ? "Conferir ocorrências" : row.daily_value === null ? "Regra a definir" : row.planned_work_days === null ? "Dias de trabalho a definir" : "Aguardando fechamento / conferência";
+const roleKey = (row: MealRow) => JSON.stringify([String(row.department ?? "").trim(), String(row.job_title ?? "").trim()]);
+const roleLabel = (value: string) => {
+  const [department, job] = JSON.parse(value) as [string, string];
+  return `${department || "Setor não informado"} · ${job || "Cargo não informado"}`;
+};
 
 export function MealBenefitModule() {
   const app = useApp();
@@ -36,6 +41,7 @@ export function MealBenefitModule() {
   const [error, setError] = useState(""), [historyError, setHistoryError] = useState("");
   const [query, setQuery] = useState("");
   const [company, setCompany] = useState<string[]>([]), [city, setCity] = useState<string[]>([]), [status, setStatus] = useState<string[]>(["ATIVO"]);
+  const [roles, setRoles] = useState<string[]>([]);
   const [page, setPage] = useState(1), [exporting, setExporting] = useState(false);
   const [detail, setDetail] = useState<MealRow | null>(null), [events, setEvents] = useState<MealEvent[]>([]), [eventError, setEventError] = useState("");
   const [historyMore, setHistoryMore] = useState(false), [historyBusy, setHistoryBusy] = useState(false);
@@ -81,10 +87,11 @@ export function MealBenefitModule() {
 
   const companies = useMemo(() => [...new Set(rows.map(row => row.company))].sort(), [rows]);
   const cities = useMemo(() => [...new Set(rows.map(row => row.city))].sort(), [rows]);
+  const roleOptions = useMemo(() => [...new Set([...rows.map(roleKey), ...roles])].map(value => ({ value, label: roleLabel(value) })).sort((a, b) => a.label.localeCompare(b.label, "pt-BR")), [rows, roles]);
   const filtered = useMemo(() => {
     const name = normalizeMealText(query), cpf = query.replace(/\D/g, "");
-    return rows.filter(row => (!company.length || company.includes(row.company)) && (!city.length || city.includes(row.city)) && (!status.length || status.includes(row.employment_status)) && (!name || normalizeMealText(row.employee_name).includes(name) || Boolean(cpf && row.cpf.includes(cpf))));
-  }, [rows, query, company, city, status]);
+    return rows.filter(row => (!company.length || company.includes(row.company)) && (!city.length || city.includes(row.city)) && (!status.length || status.includes(row.employment_status)) && (!roles.length || roles.includes(roleKey(row))) && (!name || normalizeMealText(row.employee_name).includes(name) || Boolean(cpf && row.cpf.includes(cpf))));
+  }, [rows, query, company, city, status, roles]);
   const pages = Math.max(1, Math.ceil(filtered.length / 50)), visible = filtered.slice((Math.min(page, pages) - 1) * 50, Math.min(page, pages) * 50);
   const absence = filtered.reduce((sum, row) => sum + (row.absence_days ?? 0), 0), medical = filtered.reduce((sum, row) => sum + (row.medical_days ?? 0), 0);
   const unknownAbsence = filtered.filter(row => row.absence_days === null).length, unknownMedical = filtered.filter(row => row.medical_days === null).length;
@@ -108,7 +115,7 @@ export function MealBenefitModule() {
     if (!run) return;
     setExporting(true);
     try {
-      await exportMealReport(run, filtered, app.settings.maskCpf, kind, [company.length ? `Empresas: ${company.join(", ")}` : "Todas as empresas", city.length ? `Cidades: ${city.join(", ")}` : "Todas as cidades", status.length ? `Situações: ${situationOptions.filter(option => status.includes(option.value)).map(option => option.label).join(", ")}` : "Todas as situações", query ? `Busca: ${query}` : ""].filter(Boolean).join("; "), tab === "period", rates);
+      await exportMealReport(run, filtered, app.settings.maskCpf, kind, [company.length ? `Empresas: ${company.join(", ")}` : "Todas as empresas", city.length ? `Cidades: ${city.join(", ")}` : "Todas as cidades", status.length ? `Situações: ${situationOptions.filter(option => status.includes(option.value)).map(option => option.label).join(", ")}` : "Todas as situações", roles.length ? `Setor / Cargo: ${roles.map(roleLabel).join(", ")}` : "Todos os setores / cargos", query ? `Busca: ${query}` : ""].filter(Boolean).join("; "), tab === "period", rates);
       app.addAudit({ operation: `Exportou Vale Alimentação em ${kind.toUpperCase()}`, module: "Benefícios", result: `${filtered.length} funcionário(s), versão ${timeLabel(run.completed_at)}. ${calculated.length} calculado(s); ${filtered.length - calculated.length} pendente(s).`, status: "SUCESSO", processedCount: filtered.length });
     } catch (caught) { app.toast("error", "Não foi possível exportar", caught instanceof Error ? caught.message : undefined); }
     finally { setExporting(false); }
@@ -164,6 +171,7 @@ export function MealBenefitModule() {
           <MultiSelectFilter label="Empresa" allLabel="Todas as empresas" pluralLabel="empresas" options={companies.map(value => ({ value, label: value }))} values={company} onChange={values => { setCompany(values); resetPage(); }} />
           <MultiSelectFilter label="Cidade" allLabel="Todas as cidades" pluralLabel="cidades" options={cities.map(value => ({ value, label: value }))} values={city} onChange={values => { setCity(values); resetPage(); }} />
           <MultiSelectFilter label="Situação" ariaLabel="Situação do funcionário" allLabel="Ativos e desligados" pluralLabel="situações" options={situationOptions} values={status} onChange={values => { setStatus(values); resetPage(); }} />
+          <div className="meal-role-filter"><MultiSelectFilter label="Setor / Cargo" allLabel="Todos os setores / cargos" pluralLabel="setores / cargos" options={roleOptions} values={roles} onChange={values => { setRoles(values); resetPage(); }} searchable searchPlaceholder="Pesquisar setor ou cargo, ex.: afastado" /></div>
         </div>
         <div className="meal-export-actions">
           <button className="button secondary" disabled={!run || !filtered.length || exporting || loading} onClick={() => void exportReport("pdf")}><FileDown size={16} /> Exportar PDF</button>

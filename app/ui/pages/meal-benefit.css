@@ -57,7 +57,8 @@
 
 .meal-toolbar{padding:16px;display:grid;gap:14px}
 
-.meal-filter-grid{display:grid;grid-template-columns:minmax(230px,1.5fr) minmax(190px,1.1fr) minmax(140px,.8fr) minmax(160px,.9fr);gap:12px;align-items:end;min-width:0}
+.meal-filter-grid{display:grid;grid-template-columns:minmax(220px,1.3fr) minmax(180px,1fr) minmax(160px,.9fr);gap:12px;align-items:end;min-width:0}
+.meal-role-filter{grid-column:span 2;min-width:0}
 
 .meal-filter{display:grid;gap:7px;min-width:0;margin:0}
 
@@ -74,6 +75,7 @@
 .meal-export-actions .button{min-height:40px;white-space:nowrap}
 
 @media(max-width:1100px){.meal-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.meal-role-filter{grid-column:1/-1}
 }
 
 @media(max-width:600px){.meal-filter-grid{grid-template-columns:minmax(0,1fr)}

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivePayroll, ParsedWorkbook } from "../src/types";
-import {comparePlanBase,latestPlanBase,parsePlanBase,parsePlanInvoice,parsePlanValue,planBaseAtMonth,planMonth,validatePlanInput,type PlanBaseVersion} from "../src/modules/benefits/plan-base";
+import {comparePlanBase,isPlanCoparticipationOnly,latestPlanBase,parsePlanBase,parsePlanCoparticipation,parsePlanInvoice,parsePlanValue,planBaseAtMonth,planBaseSnapshot,planCoparticipationsAtMonth,planMonth,validatePlanInput,withPlanCoparticipationMonth,type PlanBaseVersion} from "../src/modules/benefits/plan-base";
+import { createPlanBaseWorkbook } from "../src/services/benefit-plan-export";
+import { readExcel } from "../src/services/excel";
 const cpf="52998224725",second="11144477735";
 const row=(patch:Partial<PlanBaseVersion>={}):PlanBaseVersion=>({id:"v1",kind:"health",cpf,name:"Pessoa fictícia",company:"",city:"",department:"",plan:"",value:100,status:"ATIVO",notes:"",metadata:{},effectiveFrom:"2026-09",revision:1,source:"Teste",createdAt:"2026-09-01T00:00:00Z",createdByName:"Teste",...patch});
 const payroll=(competence="10/2026",healthTotal=120):ActivePayroll=>({id:"payroll",fileName:"teste.xlsx",fileSize:1,competence,importedAt:"2026-10-01",importedBy:"Teste",logs:[],records:[{cpf,name:"Pessoa fictícia",healthTotal,dentalTotal:20,healthColumns:1,dentalColumns:1,liquid:3000,sourceSheet:"Folha"}]});
@@ -104,4 +106,95 @@ test("monthly reconciliation flags an omitted deduction and a beneficiary absent
   const absent=result.rows.find(r=>r.cpf===second)!;
   assert.equal(absent.payrollValue,null);assert.equal(absent.referenceValue,35);assert.equal(absent.status,"NÃO LOCALIZADO NA FOLHA");
   assert.deepEqual(result.summary,{total:2,ok:0,divergent:1,missing:1,differenceTotal:-100});
+});
+
+test("monthly coparticipation keeps each month and ignores informational revisions when selecting the financial base",()=>{
+  const september=row({metadata:{coparticipation:15}});
+  const december=row({id:"dec",effectiveFrom:"2026-12",revision:2,value:140});
+  const november=row({id:"nov-copart",effectiveFrom:"2026-11",revision:3,value:9999,status:"INATIVO",metadata:{coparticipation:25,coparticipationMonth:"2026-11",coparticipationOnly:true}});
+  const correction=row({...november,id:"nov-zero",revision:4,metadata:{...november.metadata,coparticipation:0}});
+  const versions=[september,december,november,correction];
+  assert.equal(planCoparticipationsAtMonth(versions,"2026-09")[0].metadata.coparticipation,15);
+  assert.equal(planCoparticipationsAtMonth(versions,"2026-10").length,0);
+  assert.equal(planCoparticipationsAtMonth(versions,"2026-11")[0].metadata.coparticipation,0);
+  assert.equal(planCoparticipationsAtMonth(versions,"2026-12").length,0);
+  assert.equal(planBaseAtMonth(versions,"2026-11")[0].value,100);
+  assert.equal(planBaseAtMonth(versions,"2026-12")[0].value,140);
+  assert.equal(latestPlanBase(versions)[0].id,"dec");
+  assert.equal(comparePlanBase(payroll("11/2026",140),versions,"health",.01).summary.ok,1,"A coparticipation correction cannot replace a later tariff or add the amount twice");
+  const cleared=row({...correction,id:"nov-clear",revision:5,metadata:{...correction.metadata,coparticipation:null}});
+  assert.equal(planCoparticipationsAtMonth([...versions,cleared],"2026-11")[0].metadata.coparticipation,null);
+  assert.equal(september.metadata.coparticipation,15);
+});
+
+test("legacy amounts are assigned their original month once; missing import columns do not repeat monthly coparticipation",()=>{
+  const original={coparticipation:"12,50",invoice:100};
+  const metadata=withPlanCoparticipationMonth(original,"09/2026");
+  assert.equal(metadata.coparticipationMonth,"2026-09");assert.equal(Object.hasOwn(original,"coparticipationMonth"),false);
+  assert.equal(withPlanCoparticipationMonth(metadata,"2026-12").coparticipationMonth,"2026-09");
+  const old=row({metadata});
+  const imported=parsePlanBase(book(["NOME","CPF","DESC FOLHA"],[["Pessoa",cpf,150]]),"health",[old]).records[0];
+  assert.equal(Object.hasOwn(imported.metadata,"coparticipation"),false);
+  assert.equal(planCoparticipationsAtMonth([old,row({...imported,id:"nov",effectiveFrom:"2026-11",revision:2})],"2026-09")[0].metadata.coparticipation,"12,50");
+  assert.equal(planCoparticipationsAtMonth([old,row({...imported,id:"nov",effectiveFrom:"2026-11",revision:2})],"2026-11").length,0);
+});
+
+test("an older client can edit a tariff after a monthly entry without its financial change being hidden",()=>{
+  const base=row({value:160,effectiveFrom:"2026-12"});
+  const monthly=row({...base,id:"monthly",revision:2,metadata:{coparticipation:35,coparticipationMonth:"2026-11",coparticipationOnly:true,coparticipationBaseSnapshot:planBaseSnapshot(base)}});
+  const oldClientEdit=row({...monthly,id:"tariff-edit",revision:3,value:170});
+  assert.equal(isPlanCoparticipationOnly(monthly),true);
+  assert.equal(isPlanCoparticipationOnly(oldClientEdit),false);
+  assert.equal(latestPlanBase([base,monthly,oldClientEdit])[0].value,170);
+  assert.equal(planBaseAtMonth([base,monthly,oldClientEdit],"2026-12")[0].value,170);
+  assert.equal(comparePlanBase(payroll("11/2026",170),[base,monthly,oldClientEdit],"health",.01).summary.ok,1);
+});
+
+test("coparticipation aliases, period and zero are imported explicitly without changing DESC FOLHA",()=>{
+  for(const header of ["COPARTICIPAÇÃO","CO-PART.","COPART","CO PARTICIPACAO"]){
+    const imported=parsePlanBase(book(["NOME","CPF","DESC FOLHA",header,"COMPETENCIA COPARTICIPACAO"],[["Pessoa",cpf,120,"12,50","11/2026"]]),"health").records[0];
+    assert.equal(imported.value,120);assert.equal(imported.metadata.coparticipation,12.5);assert.equal(imported.metadata.coparticipationMonth,"2026-11");
+    assert.equal(comparePlanBase(payroll("11/2026",120),[row({...imported})],"health",.01).summary.ok,1);
+  }
+  for(const value of ["",null])assert.equal(parsePlanCoparticipation(value),null);
+  assert.equal(parsePlanCoparticipation(0),0);assert.throws(()=>parsePlanCoparticipation(-1),/coparticipação/);
+  assert.throws(()=>validatePlanInput(row({metadata:{coparticipation:10,coparticipationMonth:"2026-13"}})),/competência/);
+  assert.throws(()=>validatePlanInput(row({metadata:{coparticipationOnly:true}})),/lançamento mensal/);
+  const invalid=parsePlanBase(book(["NOME","CPF","DESC FOLHA","COPART"],[["Pessoa",cpf,100,"erro"]]),"health");
+  assert.equal(invalid.records.length,0);assert.match(invalid.issues[0],/coparticipação inválido/);
+});
+
+test("mass tariff imports preserve inactive status and pending references",()=>{
+  const inactive=row({status:"INATIVO"});
+  const updated=parsePlanBase(book(["NOME","CPF","DESC FOLHA"],[["Pessoa",cpf,130]]),"health",[inactive]).records[0];
+  assert.equal(updated.status,"INATIVO");
+  const explicit=parsePlanBase(book(["NOME","CPF","DESC FOLHA","SITUACAO"],[["Pessoa",cpf,130,"Ativo"],["Outra pessoa",second,"","PENDENTE"]]),"health",[inactive]);
+  assert.equal(explicit.records[0].status,"ATIVO");assert.equal(explicit.records[1].status,"PENDENTE");assert.equal(explicit.records[1].value,null);
+});
+
+test("base XLSX exports monthly detail, text CPFs and observations without adding coparticipation, and can be reimported",async()=>{
+  const XLSX=await import("xlsx");
+  const base=row({cpf:"01234567890",plan:"UNIMED",value:120,status:"INATIVO",notes:"=texto literal",metadata:{invoice:150,coparticipation:9,coparticipationMonth:"2026-09"}});
+  const detail=row({...base,id:"copart",revision:2,metadata:{coparticipation:25.5,coparticipationMonth:"2026-11",coparticipationOnly:true}});
+  const workbook=await createPlanBaseWorkbook({kind:"health",competence:"2026-11",records:[base],versions:[base,detail],maskCpf:false});
+  assert.deepEqual(workbook.SheetNames,["Base","Como importar"]);
+  const sheet=workbook.Sheets.Base;
+  assert.equal(sheet.C2.v,120);assert.equal(sheet.H2.v,150);assert.equal(sheet.I2.v,25.5);assert.equal(sheet.J2.v,"11/2026");
+  assert.equal(sheet.B2.v,"012.345.678-90");assert.equal(sheet.B2.t,"s");assert.equal(sheet.B2.z,"@");assert.equal(sheet.K2.f,undefined);
+  assert.equal(sheet.K2.v,"=texto literal");assert.equal(sheet["!autofilter"]?.ref,"A1:Q2");
+  const bytes=XLSX.write(workbook,{type:"array",bookType:"xlsx"});
+  const reimported=parsePlanBase(await readExcel(new File([bytes],"reajuste-unimed.xlsx")),"health").records[0];
+  assert.equal(reimported.cpf,"01234567890");assert.equal(reimported.value,120);assert.equal(reimported.status,"INATIVO");
+  assert.equal(reimported.metadata.coparticipation,25.5);assert.equal(reimported.metadata.coparticipationMonth,"2026-11");
+});
+
+test("base export respects masking, templates are empty and duplicate historical rows cannot become an invoice base",async()=>{
+  const base=row();
+  const masked=await createPlanBaseWorkbook({kind:"health",competence:"2026-11",records:[base],versions:[base],maskCpf:true});
+  assert.match(String(masked.Sheets.Base.B2.v),/^\*\*\*/);assert.equal(masked.Sheets.Base.I2,undefined);
+  const template=await createPlanBaseWorkbook({kind:"health",competence:"2026-11",records:[],versions:[],maskCpf:false,template:true});
+  assert.equal(template.Sheets.Base.A2,undefined);assert.equal(template.Sheets.Base.A1.v,"NOME");
+  assert.equal(template.Sheets.Base.I1.v,"COPARTICIPACAO");assert.equal(template.Sheets.Base.H1.v,"FATURA");
+  assert.equal(template.Sheets.Base.K1.v,"OBS");
+  await assert.rejects(()=>createPlanBaseWorkbook({kind:"health",competence:"2026-11",records:[base,base],versions:[base],maskCpf:false}),/apenas um cadastro/);
 });
