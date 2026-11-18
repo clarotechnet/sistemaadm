@@ -5,6 +5,14 @@ export type MealPeriod = { start: string; end: string; benefitMonth: string };
 export type MealEmployee = { id: string; full_name: string; cpf: string; department: string; job_title: string; status: string; external_id: string | null; external_unit_id: string | null; external_unit_name: string; mapped_city?: string | null };
 export type MealEvent = { employee_id: string; event_type: "FALTA" | "ATESTADO"; source_id: string; start_date: string; end_date: string; hours: number | null };
 export type MealCoverage = { unit_id: string; absence_ok: boolean; medical_ok: boolean; issues: string[]; employee_issues: Record<string, { absence?: string; medical?: string }> };
+export type MealRegisteredAbsence = { type: string; start_date: string; end_date: string | null; excused: boolean | null };
+export type MealQuarkDetails = {
+  updated_at: string;
+  benefit: { options: string[]; checked_at: string } | null;
+  absences: { entries: MealRegisteredAbsence[]; checked_at: string } | null;
+  no_link?: true;
+};
+export const MEAL_QUARK_BATCH_SIZE = 4;
 export type MealRow = {
   employee_id: string; employee_name: string; cpf: string; department: string; job_title: string;
   company: string; city: string; employment_status: string; rate_group: string;
@@ -12,7 +20,33 @@ export type MealRow = {
   planned_work_days: number | null; payable_days: number | null; daily_value: number | null; amount_due: number | null; issues: string[];
   calculation_version?: number | null; calculation_status?: "READY" | "PENDING" | null; calculation_notes?: string[] | null;
   rate_version_id?: string | null;
+  quark_details?: MealQuarkDetails | null;
 };
+
+export function mealQuarkDetailsPending(row: Pick<MealRow, "quark_details">) {
+  const details = row.quark_details;
+  return !details?.no_link && (!details?.benefit || !details.absences);
+}
+
+export function mealQuarkValues(row: Pick<MealRow, "quark_details" | "department" | "job_title">) {
+  const details = row.quark_details;
+  const unavailable = details?.no_link ? "Sem vínculo QuarkRH" : details ? "Consulta pendente" : "Não consultado";
+  const options = details?.benefit?.options;
+
+  const types = new Map<string, string>();
+  for (const absence of details?.absences?.entries ?? []) types.set(normalizeMealText(absence.type), absence.type);
+  const away = /\bAFASTAD[OA]S?\b/.test(normalizeMealText(row.department + " " + row.job_title));
+  const empty = away ? "Motivo não localizado no período" : "Sem afastamento registrado no período";
+  return {
+    benefit: options?.length ? options : [details?.benefit ? "Sem benefício ativo" : unavailable],
+    absence: types.size ? [...types.values()] : [details?.absences ? empty : unavailable],
+  };
+}
+
+export function mealQuarkLabels(row: Parameters<typeof mealQuarkValues>[0]) {
+  const { benefit, absence } = mealQuarkValues(row);
+  return { benefit: benefit.join(", "), absence: absence.join(", ") };
+}
 const DAY = 86400000;
 export function isMealDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;

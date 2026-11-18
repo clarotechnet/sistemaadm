@@ -209,7 +209,7 @@ test("branded XLSX preserves all rows, text CPF, real dates, numeric zero and un
   assert.equal(sheet.E11.v, 0); assert.equal(sheet.E11.t, "n"); assert.equal(sheet.P11.t, "n");
   assert.equal(sheet.H11?.v ?? null, null); assert.equal(sheet.K11?.v ?? null, null);
   assert.equal(sheet.J11.v, 25); assert.equal(sheet.J11.t, "n");
-  assert.match(sheet["!ref"]!, /Q71$/);
+  assert.match(sheet["!ref"]!, /S71$/);
   const zip = await JSZip.loadAsync(bytes);
   assert.ok(zip.file("xl/media/logo.png")); assert.ok(zip.file("xl/drawings/drawing1.xml"));
   assert.match(await zip.file("xl/worksheets/sheet1.xml")!.async("text"), /ySplit="10"/);

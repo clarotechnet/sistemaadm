@@ -57,7 +57,7 @@
 
 .meal-toolbar{padding:16px;display:grid;gap:14px}
 
-.meal-filter-grid{display:grid;grid-template-columns:minmax(220px,1.3fr) minmax(180px,1fr) minmax(160px,.9fr);gap:12px;align-items:end;min-width:0}
+.meal-filter-grid{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:12px;align-items:end;min-width:0}
 .meal-role-filter{grid-column:span 2;min-width:0}
 
 .meal-filter{display:grid;gap:7px;min-width:0;margin:0}
@@ -73,6 +73,15 @@
 .meal-export-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
 
 .meal-export-actions .button{min-height:40px;white-space:nowrap}
+.meal-export-actions .meal-detail-action{margin-right:auto;white-space:normal;text-align:left}
+.meal-quark-progress{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.meal-quark-progress p{margin:0}
+.meal-quark-progress .button{min-height:32px;font-size:11px}
+.meal-person-quark-action{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.meal-quark-date{display:block;color:var(--muted)}
+.meal-registered-absences{display:grid;gap:8px;padding:0;list-style:none}
+.meal-registered-absences li{display:grid;gap:4px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;overflow-wrap:anywhere}
+.meal-registered-absences li span{color:var(--muted)}
 
 @media(max-width:1100px){.meal-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .meal-role-filter{grid-column:1/-1}

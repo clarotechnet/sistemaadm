@@ -2,10 +2,12 @@ import { isMealDate, mealDays, type MealCoverage, type MealEvent } from "../_sha
 type Obj = Record<string, unknown>;
 const object = (value: unknown): Obj => value && typeof value === "object" && !Array.isArray(value) ? value as Obj : {};
 const text = (value: unknown) => typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
-class QuarkHttpError extends Error {
-  constructor(readonly status: number, path: string) { super(`QuarkRH HTTP ${status} em ${path.split("?")[0]}.`); }
+export class QuarkHttpError extends Error {
+  constructor(readonly status: number, path: string, message?: string) {
+    super(message ?? `QuarkRH HTTP ${status} em ${path.split("?")[0]}.`);
+  }
 }
-type MealRequester = (path: string, unit: string) => Promise<unknown>;
+export type MealRequester = (path: string, unit: string) => Promise<unknown>;
 // One queue for the entire invocation: units, sources, pages and retries share the quota.
 export function createMealRequester(options: { base: string; token: string; fetcher?: typeof fetch; deadline?: number; intervalMs?: number; now?: () => number; wait?: (ms: number) => Promise<void> }): MealRequester {
   const now = options.now ?? Date.now, wait = options.wait ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
@@ -35,7 +37,7 @@ export function createMealRequester(options: { base: string; token: string; fetc
       const retryMs = Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : retryAfter && Number.isFinite(Date.parse(retryAfter)) ? Math.max(0, Date.parse(retryAfter) - now()) : 1000 * 2 ** attempt;
       nextAt = Math.max(nextAt, now() + retryMs);
       if (attempt === 2) throw error;
-      if (nextAt >= deadline) throw new Error(`${error.message} Limite de requisições: nova tentativa somente após o prazo desta consulta.`);
+      if (nextAt >= deadline) throw new QuarkHttpError(response.status, path, `${error.message} Limite de requisições: nova tentativa somente após o prazo desta consulta.`);
     }
     throw new Error("Não foi possível consultar o QuarkRH.");
   }

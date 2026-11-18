@@ -1,6 +1,6 @@
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import { listEmployees } from "./employee-documents";
-import { buildMealRows, mealPeriod, type MealCoverage, type MealEvent, type MealPeriod, type MealRow } from "../../supabase/functions/_shared/meal-domain";
+import { buildMealRows, mealPeriod, type MealCoverage, type MealEvent, type MealPeriod, type MealQuarkDetails, type MealRow } from "../../supabase/functions/_shared/meal-domain";
 import type { MealRateVersion } from "../../supabase/functions/_shared/meal-policy";
 import { requireMealRateBackend } from "./meal-rates";
 
@@ -35,6 +35,21 @@ export async function listMealEmployeeEvents(runId: string, employeeId: string):
     if (!data || data.length < 1000) return events;
   }
   throw new Error("Ocorrências excedem o limite de consulta.");
+}
+export async function consultMealQuarkDetails(runId: string, employeeIds: string[]) {
+  const { data, error } = await createSupabaseBrowserClient().functions.invoke<{
+    rows: { employee_id: string; details: MealQuarkDetails | null }[];
+    paused?: string;
+  }>("sync-benefit-meal", { body: { action: "quark_details", runId, employeeIds } });
+  if (error) {
+    const response = (error as { context?: unknown }).context;
+    const payload = response instanceof Response ? await response.clone().json().catch(() => null) as { error?: string } | null : null;
+    const message = payload?.error;
+    if (message === "Ação inválida.") throw new Error("Atualize a função sync-benefit-meal para habilitar benefícios e afastamentos.");
+    throw new Error(message || "Não foi possível consultar os dados do QuarkRH.");
+  }
+  if (!Array.isArray(data?.rows)) throw new Error("A consulta de benefícios e afastamentos não retornou os dados esperados.");
+  return data;
 }
 export async function currentMealEmployees(period: MealPeriod, rates?: MealRateVersion[]) {
   const employees = await listEmployees();

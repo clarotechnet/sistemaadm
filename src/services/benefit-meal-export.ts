@@ -1,4 +1,4 @@
-import { mealCalculationNote, mealDailyRate, mealGroupLabels, type MealRow } from "../../supabase/functions/_shared/meal-domain";
+import { mealCalculationNote, mealDailyRate, mealGroupLabels, mealQuarkLabels, type MealRow } from "../../supabase/functions/_shared/meal-domain";
 import type { MealRun } from "./benefit-meal";
 import type { MealRateVersion } from "../../supabase/functions/_shared/meal-policy";
 import { formatCpf } from "../utils/cpf";
@@ -15,7 +15,7 @@ function financialSummary(rows: MealRow[]) {
   const total = ready.reduce((sum, row) => sum + Math.round(row.amount_due! * 100), 0) / 100;
   return `${ready.length} de ${rows.length} cálculo(s) concluído(s). Total calculado: ${money(total)}. ${rows.length - ready.length} pendente(s); valores ausentes não são zero. Dias dos demais grupos ainda serão definidos pelo RH.`;
 }
-const headers = ["Funcionário", "CPF", "Setor / Equipe", "Cargo", "Faltas (dias)", "Atestados (dias)", "Dias para desconto", "Dias previstos", "Dias a pagar", "Valor diário (R$)", "Valor a receber (R$)", "Empresa / Unidade", "Cidade", "Situação", "Grupo", "Consulta até", "Observações"];
+const headers = ["Funcionário", "CPF", "Setor / Equipe", "Cargo", "Faltas (dias)", "Atestados (dias)", "Dias para desconto", "Dias previstos", "Dias a pagar", "Valor diário (R$)", "Valor a receber (R$)", "Empresa / Unidade", "Cidade", "Situação", "Grupo", "Consulta até", "Observações", "Benefício no QuarkRH", "Tipo de afastamento"];
 const xml = (value: unknown) => Array.from(String(value ?? "")).filter(char => char.charCodeAt(0) >= 32 || [9, 10, 13].includes(char.charCodeAt(0))).join("").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 const cellName = (column: number, row: number) => {
   let value = column + 1, name = "";
@@ -54,16 +54,21 @@ export async function buildMealReportXlsx(report: MealReport): Promise<Uint8Arra
   ];
   rows.forEach((row, index) => {
     const position = index + 11;
-    const values = [row.employee_name, formatCpf(row.cpf, maskCpf) || "CPF não informado", row.department, row.job_title, row.absence_days, row.medical_days, row.deduction_days, row.planned_work_days, row.payable_days, mealDailyRate(row, currentRates, rates, month).value, row.amount_due, row.company, row.city, row.employment_status, mealGroupLabels[row.rate_group] ?? row.rate_group, excelDate(run.queried_through), rowNotes(row, currentRates, rates, month)];
-    body.push(`<row r="${position}" ht="42" customHeight="1">${values.map((value, column) => {
+    const quark = mealQuarkLabels(row);
+    const values = [row.employee_name, formatCpf(row.cpf, maskCpf) || "CPF não informado", row.department, row.job_title, row.absence_days, row.medical_days, row.deduction_days, row.planned_work_days, row.payable_days, mealDailyRate(row, currentRates, rates, month).value, row.amount_due, row.company, row.city, row.employment_status, mealGroupLabels[row.rate_group] ?? row.rate_group, excelDate(run.queried_through), rowNotes(row, currentRates, rates, month), quark.benefit, quark.absence];
+    const height = Math.min(182, Math.max(42, 14 * Math.ceil(quark.absence.length / 40) + 10, 14 * Math.ceil(quark.benefit.length / 26) + 10));
+    body.push(`<row r="${position}" ht="${height}" customHeight="1">${values.map((value, column) => {
       const ref = cellName(column, position);
       if (column >= 4 && column <= 10) return numericCell(ref, value as number | null, column >= 9 ? 6 : 5);
       if (column === 15) return numericCell(ref, value as number, 7);
       return textCell(ref, value, column === 16 ? 8 : 4);
     }).join("")}</row>`);
   });
-  const widths = [38, 18, 31, 31, 13, 15, 17, 15, 15, 17, 20, 38, 18, 16, 29, 17, 80];
-  zip.file("xl/worksheets/sheet1.xml", `<worksheet xmlns="${ns}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:Q${rows.length + 10}"/><sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="2" ySplit="10" topLeftCell="C11" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><cols>${widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("")}</cols><sheetData>${body.join("")}</sheetData><autoFilter ref="A10:Q${rows.length + 10}"/><mergeCells count="6">${["B2:Q2", "B3:Q3", "B4:Q4", "A6:Q6", "A7:Q7", "A8:Q8"].map(ref => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells><pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/><pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/><drawing r:id="rId1"/></worksheet>`);
+  const widths = [38, 18, 31, 31, 13, 15, 17, 15, 15, 17, 20, 38, 18, 16, 29, 17, 80, 30, 46];
+  const lastCell = cellName(headers.length - 1, rows.length + 10);
+  const merged = [[1, 2], [1, 3], [1, 4], [0, 6], [0, 7], [0, 8]].map(([first, row]) =>
+    `<mergeCell ref="${cellName(first, row)}:${cellName(headers.length - 1, row)}"/>`).join("");
+  zip.file("xl/worksheets/sheet1.xml", `<worksheet xmlns="${ns}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:${lastCell}"/><sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="2" ySplit="10" topLeftCell="C11" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><cols>${widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("")}</cols><sheetData>${body.join("")}</sheetData><autoFilter ref="A10:${lastCell}"/><mergeCells count="6">${merged}</mergeCells><pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/><pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/><drawing r:id="rId1"/></worksheet>`);
   zip.file("xl/worksheets/_rels/sheet1.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>');
   zip.file("xl/drawings/drawing1.xml", '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>47625</xdr:rowOff></xdr:from><xdr:ext cx="571500" cy="571500"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="1" name="Logotipo TechNET"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="571500" cy="571500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>');
   zip.file("xl/drawings/_rels/drawing1.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo.png"/></Relationships>');
@@ -89,8 +94,16 @@ export async function buildMealReportPdf(report: MealReport): Promise<Blob> {
     const body: unknown[][] = [[{ text: company, colSpan: 11, bold: true, color: "#991b1b", fillColor: "#f7eeee" }, ...Array.from({ length: 10 }, () => ({}))], tableHeaders.map(text => ({ text, color: "#ffffff", fillColor: "#991b1b", bold: true, fontSize: 8 }))];
     for (const person of people) {
       const daily = mealDailyRate(person, currentRates, rates, month);
+      const quark = mealQuarkLabels(person);
+      const detail = [
+        { text: person.employee_name, bold: true },
+        { text: `${person.employment_status} - ${person.city} - ${mealGroupLabels[person.rate_group] ?? person.rate_group}`, fontSize: 7, color: "#666666" },
+        { text: `Benefício no QuarkRH: ${quark.benefit}`, fontSize: 7 },
+        { text: `Tipo de afastamento: ${quark.absence}`, fontSize: 7 },
+        { text: rowNotes(person, currentRates, rates, month), fontSize: 7, color: "#805900" },
+      ];
       body.push([
-      { stack: [{ text: person.employee_name, bold: true }, { text: `${person.employment_status} - ${person.city} - ${mealGroupLabels[person.rate_group] ?? person.rate_group}`, fontSize: 7, color: "#666666" }, { text: rowNotes(person, currentRates, rates, month), fontSize: 7, color: "#805900" }] },
+      { stack: detail },
       formatCpf(person.cpf, maskCpf) || "Não informado", person.department || "-", person.job_title || "-",
       person.absence_days === null ? "Não consultado" : String(person.absence_days), person.medical_days === null ? "Não consultado" : String(person.medical_days),
       person.deduction_days === null ? "Pendente" : String(person.deduction_days), person.planned_work_days === null ? "A definir" : String(person.planned_work_days),

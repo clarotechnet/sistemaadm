@@ -56,6 +56,22 @@ await context.route("**/*", async route => {
   else if (table === "sync-benefit-meal") {
     if (req.method() === "GET") return legacyFunction ? reply({ error: "Método não permitido" }, 405) : reply({ ok: true, calculationVersion: 2,rateRulesVersion:1 });
     const configuration=req.postDataJSON();
+    if(configuration.action==="quark_details") {
+      assert.ok(configuration.employeeIds.length <= 4);
+      const snapshot=stored.get(configuration.runId);
+      assert.ok(snapshot?.length);
+      const rows=configuration.employeeIds.map(id=>{
+        const person=snapshot.find(row=>row.employee_id===id);
+        const checkedAt="2026-11-25T16:00:00Z";
+        const absences=id===employees[2].id
+          ? [{type:"LICENÇA MATERNIDADE",start_date:"2026-07-03",end_date:"2026-10-30",excused:true}, {type:"FÉRIAS",start_date:"2026-11-06",end_date:"2026-11-19",excused:true}]
+          : [];
+        const details={updated_at:checkedAt,benefit:{options:id===employees[2].id?["VR 25", "VR 30"]:[],checked_at:checkedAt},absences:{entries:absences,checked_at:checkedAt}};
+        person.quark_details=details;
+        return {employee_id:id,details};
+      });
+      return reply({rows});
+    }
     if(configuration.action==='save_rates') {
       if(conflictRates) return reply({error:'Os valores mudaram durante a edição. Recarregue antes de salvar'},409);
       const before=selectMealRateVersions(rateVersions,configuration.month);
@@ -68,6 +84,7 @@ await context.route("**/*", async route => {
     if (syncFailure) return reply({ error: "QuarkRH indisponível. Última consulta preservada." }, 502);
     const id = `44444444-4444-4444-8444-${String(++version).padStart(12, "0")}`;
     const events = [{ employee_id: employees[0].id, event_type: "FALTA", source_id: "espelho:u1:1:2026-11-01", start_date: "2026-11-01", end_date: "2026-11-01", hours: 8 }, ...(version > 1 ? [{ employee_id: employees[0].id, event_type: "FALTA", source_id: "espelho:u1:1:2026-11-02", start_date: "2026-11-02", end_date: "2026-11-02", hours: 8 }] : [])];
+    events.push({ employee_id: employees[2].id, event_type: "ATESTADO", source_id: "test-licensed-medical", start_date: "2026-07-03", end_date: "2026-10-30", hours: null });
     events.push({ employee_id: employees[4].id, event_type: "FALTA", source_id: "test-rh-absence", start_date: "2026-11-01", end_date: "2026-11-01", hours: 8 }, { employee_id: employees[4].id, event_type: "ATESTADO", source_id: "test-rh-medical", start_date: "2026-11-02", end_date: "2026-11-03", hours: 8 });
     const coverage = [{ unit_id: "u1", absence_ok: true, medical_ok: true, issues: [], employee_issues: {} }];
     runs.push({ id, period_start: input.start, period_end: input.end, benefit_month: "2026-12-01", queried_through: input.end, status: "SUCCESS", triggered_by_name: "RH Teste", started_at: `2026-11-25T1${version}:00:00Z`, completed_at: `2026-11-25T1${version}:01:00Z`, employee_count: employees.length, coverage, warnings: [], error_message: null });
@@ -131,7 +148,7 @@ try {
   passed.push("meal replaces transport, loads every employee, derives December, preserves unknown inputs and syncs only on click");
 
   async function checkLayout(label) {
-    const sizes = await panel().evaluate(node => ({ page: document.documentElement.scrollWidth, viewport: innerWidth, areas: [...node.querySelectorAll('.meal-list-scroll,.meal-rate-rules .table-scroll')].map(area => ({ width: area.clientWidth, scroll: area.scrollWidth })) }));
+    const sizes = await panel().evaluate(node => ({ page: document.documentElement.scrollWidth, viewport: innerWidth, areas: [...node.querySelectorAll('.meal-filter-grid,.meal-list-scroll,.meal-rate-rules .table-scroll')].map(area => ({ width: area.clientWidth, scroll: area.scrollWidth })) }));
     assert.ok(sizes.page <= sizes.viewport + 1, label + ': page overflow');
     for (const area of sizes.areas) assert.ok(area.scroll <= area.width + 1, label + ': horizontal table scrolling');
     const bounds = await panel().locator('.meal-list-scroll').boundingBox();
@@ -174,7 +191,7 @@ try {
   const multiDownload = page.waitForEvent("download"); await panel().getByRole("button", { name: "Exportar Excel (.xlsx)", exact: true }).click();
   await (await multiDownload).saveAs("tmp/meal-qa/multi-filter.xlsx");
   const multiSheet = XLSX.read(await readFile("tmp/meal-qa/multi-filter.xlsx"), { type: "buffer" }).Sheets["Vale Alimentação"];
-  assert.match(multiSheet["!ref"], /Q71$/);
+  assert.match(multiSheet["!ref"], /S71$/);
   for (const label of ["DMV - RECIFE", "VNA TELECOM LTDA - NATAL", "NATAL, RECIFE", "Ativos, Desligados"]) assert.ok(multiSheet.A7.v.includes(label), label);
   await choose("Empresa", ["DMV - RECIFE"]);
   await choose("Cidade", ["NATAL"]);
@@ -206,18 +223,56 @@ try {
   await choose("Empresa",["DMV - RECIFE"]);
   assert.equal(await table().locator("tbody tr").count(),0,"Role selections combine with company and situation filters");
   await choose("Empresa",[]);
+  const awayRow=table().locator("tbody tr").filter({hasText:employees[2].full_name});
+  const detailCoverage=panel().locator(".meal-quark-progress").getByRole("status");
+  assert.match(await detailCoverage.innerText(), /0 de 2 .* 2 a consultar\./);
+  await awayRow.locator('[data-field="quark-benefit"]').getByText("Não consultado",{exact:true}).waitFor();
+  assert.equal(await awayRow.locator('[data-field="quark-absence"]').innerText(), "Não consultado");
+  assert.equal(await awayRow.locator('[data-metric="medical"]').innerText(), "5");
+  await panel().getByRole("button",{name:"Consultar benefício e afastamento",exact:true}).click();
+  await awayRow.locator('[data-field="quark-benefit"]').getByText("VR 25, VR 30",{exact:true}).waitFor();
+  await awayRow.locator('[data-field="quark-absence"]').getByText("LICENÇA MATERNIDADE, FÉRIAS",{exact:true}).waitFor();
+  assert.match(await detailCoverage.innerText(), /2 de 2 com benefício e afastamento consultados/);
+  await awayRow.scrollIntoViewIfNeeded();
+  await page.screenshot({path:"tmp/meal-qa/quark-details-populated.png"});
+  assert.match(await table().locator("tbody tr").filter({hasText:employees[3].full_name}).locator('[data-field="quark-absence"]').innerText(),/Motivo não localizado/);
+  assert.equal(await panel().getByRole("button",{name:"Consultar benefício e afastamento",exact:true}).isDisabled(),true);
+  await awayRow.getByRole("button",{name:"Ver detalhes",exact:true}).click();
+  await page.getByRole("list",{name:"Afastamentos registrados no QuarkRH"}).getByText(/03\/07\/2026 a 30\/10\/2026 · Abonada/).waitFor();
+  await page.getByRole("button",{name:"Fechar ocorrências",exact:true}).click();
+  await panel().getByRole("button",{name:"Recarregar versão mais recente",exact:true}).click();
+  await awayRow.locator('[data-field="quark-benefit"]').getByText("VR 25, VR 30",{exact:true}).waitFor();
+  passed.push("the filtered detail lookup persists benefit options and leave types, with absence dates and excused status in the dialog");
+
+  await choose("Benefício no QuarkRH", ["VR 30"]);
+  assert.equal(await table().locator("tbody tr").count(), 1);
+  assert.equal(await awayRow.count(), 1);
+  await choose("Tipo de afastamento", ["Motivo não localizado no período"]);
+  assert.equal(await table().locator("tbody tr").count(), 0);
+  await choose("Benefício no QuarkRH", ["VR 30", "Sem benefício ativo"]);
+  assert.equal(await table().locator("tbody tr").count(), 1);
+  assert.equal(await awayRow.count(), 0);
+  await choose("Tipo de afastamento", ["FÉRIAS", "Motivo não localizado no período"]);
+  assert.equal(await table().locator("tbody tr").count(), 2);
   const roleDownloadPromise=page.waitForEvent("download");
   await panel().getByRole("button",{name:"Exportar Excel (.xlsx)",exact:true}).click();
   await (await roleDownloadPromise).saveAs("tmp/meal-qa/role-filter.xlsx");
   const roleSheet=XLSX.read(await readFile("tmp/meal-qa/role-filter.xlsx"),{type:"buffer"}).Sheets["Vale Alimentação"];
-  assert.match(roleSheet["!ref"],/Q12$/);
+  assert.match(roleSheet["!ref"],/S12$/);
+  assert.equal(roleSheet.R11.v,"VR 25, VR 30");
+  assert.equal(roleSheet.S11.v,"LICENÇA MATERNIDADE, FÉRIAS");
+  assert.equal(roleSheet.F11.v, 5);
   assert.ok(roleSheet.A7.v.includes("Setor / Cargo:"));
   assert.ok(roleSheet.A7.v.includes(awayDepartment));assert.ok(roleSheet.A7.v.includes(awayJob));
+  assert.ok(roleSheet.A7.v.includes("Benefício no QuarkRH · VR 30, Sem benefício ativo"));
+  assert.ok(roleSheet.A7.v.includes("Tipo de afastamento · FÉRIAS, Motivo não localizado no período"));
   assert.deepEqual([roleSheet.A11.v,roleSheet.A12.v],[employees[2].full_name,employees[3].full_name]);
   const rolePdfPromise=page.waitForEvent("download");
   await panel().getByRole("button",{name:"Exportar PDF",exact:true}).click();
   await (await rolePdfPromise).saveAs("tmp/meal-qa/role-filter.pdf");
   assert.ok((await PDFDocument.load(await readFile("tmp/meal-qa/role-filter.pdf"))).getPageCount()>=1);
+  await choose("Benefício no QuarkRH", []);
+  await choose("Tipo de afastamento", []);
   await filterButton("Setor / Cargo").click();
   await rolePopup.getByRole("searchbox").fill("opção inexistente");
   await rolePopup.getByRole("status").getByText("Nenhuma opção corresponde à pesquisa.",{exact:true}).waitFor();
@@ -226,6 +281,11 @@ try {
   await rolePopup.getByRole("button",{name:"Concluir",exact:true}).click();
   await choose("Situação do funcionário",[]);
   assert.match(await panel().locator(".meal-table-note").innerText(),/61 funcionário/);
+  assert.match(await detailCoverage.innerText(), /2 de 61 .* 59 a consultar\./);
+  await choose("Tipo de afastamento", ["Não consultado"]);
+  assert.match(await panel().locator(".meal-table-note").innerText(), /^59 funcionário/);
+  await choose("Tipo de afastamento", []);
+  passed.push("Quark benefit and absence filters match individual options, combine across columns, and apply to exports and unchecked rows");
   passed.push("searchable sector/job multi-select isolates away roles, resets pagination, combines with existing filters and limits XLSX/PDF exports");
 
   await table().locator("tbody tr").first().getByRole("button", { name: "Ver detalhes" }).click();
@@ -238,12 +298,12 @@ try {
   let downloaded = page.waitForEvent("download"); await panel().getByRole("button", { name: "Exportar Excel (.xlsx)", exact: true }).click();
   let download = await downloaded; await download.saveAs("tmp/meal-qa/filtered.xlsx");
   let sheet = XLSX.read(await readFile("tmp/meal-qa/filtered.xlsx"), { type: "buffer" }).Sheets["Vale Alimentação"];
-  assert.equal(sheet.A11.v, "ANA TESTE"); assert.equal(sheet.E11.v, 1); assert.equal(sheet.K11?.v ?? null, null); assert.match(sheet["!ref"], /Q11$/);
+  assert.equal(sheet.A11.v, "ANA TESTE"); assert.equal(sheet.E11.v, 1); assert.equal(sheet.K11?.v ?? null, null); assert.match(sheet["!ref"], /S11$/);
   await panel().getByLabel("Pesquisar funcionário ou CPF").fill("");
   downloaded = page.waitForEvent("download"); await panel().getByRole("button", { name: "Exportar Excel (.xlsx)", exact: true }).click();
   download = await downloaded; await download.saveAs("tmp/meal-qa/report.xlsx");
   sheet = XLSX.read(await readFile("tmp/meal-qa/report.xlsx"), { type: "buffer" }).Sheets["Vale Alimentação"];
-  assert.match(sheet["!ref"], /Q71$/);
+  assert.match(sheet["!ref"], /S71$/);
   const xlsxData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
   const exportedRh = xlsxData.find(row => row[0] === "FUNCIONARIO TESTE 004");
   assert.equal(exportedRh[7], 22); assert.equal(exportedRh[8], 19); assert.equal(exportedRh[9], 23); assert.equal(exportedRh[10], 437);
@@ -259,6 +319,12 @@ try {
   await page.waitForFunction(() => !document.querySelector('.meal-history button')?.disabled && document.querySelector('.meal-sync-info')?.textContent.includes('Versão consultada'));
   await choose("Situação do funcionário", []);
   assert.equal(await table().locator("tbody tr").first().locator('[data-metric="absence"]').innerText(), "1");
+  await choose("Benefício no QuarkRH", ["VR 30"]);
+  await choose("Tipo de afastamento", ["FÉRIAS"]);
+  assert.equal(await table().locator("tbody tr").count(), 1);
+  assert.equal(await awayRow.count(), 1);
+  await choose("Benefício no QuarkRH", []);
+  await choose("Tipo de afastamento", []);
   await panel().getByRole("tab", { name: "Apuração por período" }).click();
   await table().getByText("ANA TESTE", { exact: true }).waitFor();
   assert.equal(await table().locator("tbody tr").first().locator('[data-metric="absence"]').innerText(), "2");

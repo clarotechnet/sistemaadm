@@ -14,7 +14,7 @@ function validIsoDate(year: string, month: string, day: string): string | null {
 
 /**
  * Datas da API QuarkRH podem vir como timestamp Unix em milissegundos
- * (13 dígitos), segundos (10 dígitos), ou como datas ISO.
+ * (13 dígitos), segundos (10 dígitos), ou como datas ISO ou dd-MM-yyyy.
  * Timestamps representam instantes, convertidos para o dia civil de São Paulo.
  * Datas ISO sem horário já representam um dia civil e não sofrem conversão de fuso.
  */
@@ -26,8 +26,8 @@ export function parseQuarkEmployeeDate(value: unknown): string | null {
   const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
   if (iso) return validIsoDate(iso[1], iso[2], iso[3]);
 
-  const brazilian = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (brazilian) return validIsoDate(brazilian[3], brazilian[2], brazilian[1]);
+  const brazilian = text.match(/^(\d{2})([/-])(\d{2})\2(\d{4})$/);
+  if (brazilian) return validIsoDate(brazilian[4], brazilian[3], brazilian[1]);
 
   if (!/^\d{10}(?:\d{3})?$/.test(text)) return null;
   const milliseconds = Number(text) * (text.length === 10 ? 1000 : 1);

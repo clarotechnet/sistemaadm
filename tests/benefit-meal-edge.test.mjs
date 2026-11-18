@@ -10,6 +10,7 @@ test("Edge verifies active RH, validates dates, paginates the whole registry and
   let source = await readFile(path, "utf8");
   source = source.replace('import "jsr:@supabase/functions-js/edge-runtime.d.ts";', "").replace("npm:@supabase/supabase-js@2.114.0", import.meta.resolve("@supabase/supabase-js")).replace("../_shared/meal-domain.ts", new URL("../supabase/functions/_shared/meal-domain.ts", import.meta.url).href).replace("./quark.ts", new URL("../supabase/functions/sync-benefit-meal/quark.ts", import.meta.url).href);
   source = source.replace("../_shared/meal-policy.ts", new URL("../supabase/functions/_shared/meal-policy.ts", import.meta.url).href);
+  source = source.replace("./details.ts", new URL("../supabase/functions/sync-benefit-meal/details.ts", import.meta.url).href);
   const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
   const oldFetch = globalThis.fetch, oldDeno = globalThis.Deno;
   const actor = "11111111-1111-4111-8111-111111111111", run = "22222222-2222-4222-8222-222222222222";
@@ -18,6 +19,9 @@ test("Edge verifies active RH, validates dates, paginates the whole registry and
   const env = { SUPABASE_URL: "https://meal-edge.example.invalid", SUPABASE_ANON_KEY: "fictional-public", SUPABASE_SERVICE_ROLE_KEY: "fictional-service", QUARK_AUTH_TOKEN: "fictional-quark", QUARK_API_URL: "https://quark.example.invalid" };
   const rates = mealRateDefinitions.map((item, index) => ({ id: `55555555-5555-4555-8555-${String(index).padStart(12,'0')}`, revision:index+1, city:item.city,rate_group:item.group,effective_month:'2026-11-01',daily_value:item.initialCents/100,fixed_days:item.fixedDays,created_at:'2026-11-10T15:00:00Z',created_by_name:'Inicial',note:'' }));
   let handler, role = "RH", medicalFailure = false, missingRates = false, missingMapping = true, saved, rateChanges, insertedRun;
+  let detailsRateLimited = false;
+  const person = employees[2];
+  const savedDetails = new Map();
   const calls = [];
   globalThis.Deno = { env: { get: key => env[key] }, serve: callback => { handler = callback; } };
   globalThis.fetch = async (input, options) => {
@@ -27,19 +31,51 @@ test("Edge verifies active RH, validates dates, paginates the whole registry and
       if (url.pathname === "/auth/v1/user") return Response.json({ id: actor, email: "rh@example.invalid" });
       if (url.pathname.endsWith("/profiles")) return Response.json({ full_name: "RH Teste", role, status: "ATIVO" });
       if (url.pathname.endsWith("/employees")) {
+        if(url.searchParams.has("id")) return Response.json([{id:person.id,external_id:"2",external_unit_id:"9417839"}]);
         if (missingMapping && url.searchParams.get("select").includes("mapped_city")) return Response.json({ code: "42703", message: "column mapped_city does not exist" }, { status: 400 });
         const offset = Number(url.searchParams.get("offset") ?? 0); return Response.json(employees.slice(offset, offset + Number(url.searchParams.get("limit") ?? 1000)));
       }
       if (url.pathname.endsWith("/benefit_meal_rate_versions")) return missingRates ? Response.json({ code: "42P01", message: "not installed" }, { status: 404 }) : Response.json([]);
       if (url.pathname.endsWith("/get_benefit_meal_rates")) return Response.json(rates);
       if (url.pathname.endsWith("/save_benefit_meal_rates")) { rateChanges=JSON.parse(options.body); return Response.json({saved:1,effectiveMonth:'2027-01-01'}); }
-      if (url.pathname.endsWith("/benefit_meal_runs")) { if(method==='POST') insertedRun=JSON.parse(options.body); return method === "POST" ? Response.json({ id: run }, { status: 201 }) : new Response(null, { status: 204 }); }
+      if (url.pathname.endsWith("/benefit_meal_runs")) {
+        if(method==="GET")return Response.json({status:"SUCCESS",period_start:"2026-09-26",queried_through:"2026-10-25"});
+        if(method==="POST")insertedRun=JSON.parse(options.body);
+        return method==="POST"?Response.json({id:run},{status:201}):new Response(null,{status:204});
+      }
+      if (url.pathname.endsWith("/benefit_meal_rows")) {
+        assert.equal(url.searchParams.get("run_id"),"eq."+run);
+        if(method==="PATCH") {
+          assert.equal(url.searchParams.get("snapshot_employee_id"),"eq."+person.id);
+          const payload=JSON.parse(options.body);
+          assert.deepEqual(Object.keys(payload),["quark_details"]);
+          savedDetails.set(person.id,payload.quark_details);
+          return Response.json([payload]);
+        }
+        const ids=url.searchParams.get("snapshot_employee_id");
+        return Response.json(ids?.includes(person.id)?[{snapshot_employee_id:person.id,employee_id:person.id,quark_details:savedDetails.get(person.id)??null}]:[]);
+      }
       if (url.pathname.endsWith("/complete_benefit_meal_versioned_run")) { saved = JSON.parse(options.body); return Response.json(run); }
     }
     if (url.hostname === "quark.example.invalid") {
       assert.equal(new Headers(options.headers).get("Auth-Token"), "fictional-quark");
       if (url.pathname.endsWith("espelho-ponto")) { const month = url.searchParams.get("inicio") === "01/09/2026" ? "09" : "10"; assert.equal(url.searchParams.get("inicio"), `01/${month}/2026`); assert.equal(url.searchParams.get("fim"), month === "09" ? "30/09/2026" : "31/10/2026"); return Response.json({ totalPages: 1, content: [] }); }
       if (url.pathname.endsWith("atestado-medico")) return medicalFailure ? new Response("unavailable", { status: 503 }) : Response.json({ totalPages: 1, content: [] });
+      if (url.pathname === "/v1/beneficios/alimentacao/2") {
+        assert.equal(new Headers(options.headers).get("Unidade-ID"),"9417839");
+        if(detailsRateLimited)return new Response("rate limited",{status:429,headers:{"Retry-After":"60"}});
+        return Response.json({dados:[
+          {id:1,ativo:true,auxilioAlimentacao:{descricao:"VR 20",valorAlimentacao:20},valorBeneficioAplicado:17},
+          {id:2,ativo:false,auxilioAlimentacao:{descricao:"VR 25"}},
+        ]});
+      }
+      if (url.pathname === "/v1/ausencias/2") {
+        assert.equal(url.searchParams.get("page"),"1");
+        return Response.json({dados:[
+          {id:1,colaboradorId:2,inicio:"03-07-2026",fim:"30-10-2026",tipo:{denominacao:"LICENÇA MATERNIDADE"},abonada:true,observacoes:"dado privado"},
+          {id:2,colaboradorId:2,inicio:"2026-11-15",fim:"2026-11-20",tipo:{denominacao:"FORA DO PERÍODO"}},
+        ]});
+      }
     }
     throw new Error("Unexpected endpoint in offline Edge test: " + url.origin + url.pathname);
   };
@@ -78,5 +114,23 @@ test("Edge verifies active RH, validates dates, paginates the whole registry and
     assert.equal(rateChanges.p_actor,actor); assert.equal(rateChanges.p_month,'2027-01-01');
     assert.equal(calls.filter(call=>/espelho-ponto|atestado-medico/.test(call.path)).length,sourceCalls);
     role='CONSULTA'; assert.equal((await request({action:'save_rates',city:'NATAL',month:'2027-01',changes:[]})).status,403);
+    env.QUARK_AUTH_TOKEN="fictional-quark";
+    const lookup={action:"quark_details",runId:run,employeeIds:[person.id]};
+    assert.equal((await request(lookup)).status,403);
+    role="RH";
+    assert.equal((await request({...lookup,employeeIds:[employees[3].id]})).status,400,"An employee must belong to the requested snapshot.");
+    detailsRateLimited=true;
+    const limited=await (await request(lookup)).json();
+    assert.match(limited.paused,/limitou/);
+    assert.equal(limited.rows[0].details.benefit,null);
+    assert.equal(calls.filter(call=>call.path==="/v1/ausencias/2").length,0,"A long Retry-After must pause the batch.");
+    detailsRateLimited=false;
+    const enriched=await (await request(lookup)).json();
+    assert.deepEqual(enriched.rows[0].details.benefit.options,["VR 20"]);
+    assert.deepEqual(enriched.rows[0].details.absences.entries,[{type:"LICENÇA MATERNIDADE",start_date:"2026-07-03",end_date:"2026-10-30",excused:true}]);
+    assert.equal(JSON.stringify(enriched).includes("dado privado"),false);
+    const count=calls.filter(call=>call.path==="/v1/ausencias/2").length;
+    await request(lookup);
+    assert.equal(calls.filter(call=>call.path==="/v1/ausencias/2").length,count,"Reopening an enriched snapshot must reuse the consulted details.");
   } finally { globalThis.fetch = oldFetch; if (oldDeno === undefined) delete globalThis.Deno; else globalThis.Deno = oldDeno; }
 });
