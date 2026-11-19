@@ -73,7 +73,9 @@ test("signed merge copies invisible-signature pages and embeds the exact origina
   assert.equal(names.size(), 4);
   assert.deepEqual([0, 2].map(index => names.lookup(index, PDFHexString).decodeText()), ["assinatura (2).pdf", "assinatura.pdf"]);
   for (const index of [1, 3]) {
-    const data = names.lookup(index, PDFDict).lookup(PDFName.of("EF"), PDFDict).lookup(PDFName.of("F"), PDFRawStream);
+    const embeddedFile = names.lookup(index, PDFDict).lookup(PDFName.of("EF"), PDFDict);
+    const data = embeddedFile.lookup(PDFName.of("F"));
+    assert.ok(data instanceof PDFRawStream, "O anexo deve conter o fluxo do PDF original");
     assert.deepEqual(decodePDFRawStream(data).decode(), original);
   }
 });
