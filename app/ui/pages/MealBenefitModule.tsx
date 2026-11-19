@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, FileDown, FileSpreadsheet, History, RefreshCw, Search, X } from "lucide-react";
-import { defaultMealPeriod, mealCalculationNote, mealDailyRate, mealGroupLabels, mealPeriod, mealQuarkDetailsPending, mealQuarkLabels, mealQuarkValues, MEAL_QUARK_BATCH_SIZE, normalizeMealText, type MealEvent, type MealRow } from "../../../supabase/functions/_shared/meal-domain";
+import { applyMealApprenticeRule, defaultMealPeriod, mealCalculationNote, mealDailyRate, mealGroupLabels, mealPeriod, mealPlannedDaysLabel, mealQuarkDetailsPending, mealQuarkLabels, mealQuarkValues, MEAL_QUARK_BATCH_SIZE, normalizeMealText, type MealEvent, type MealRow } from "../../../supabase/functions/_shared/meal-domain";
 import type { MealRateVersion } from "../../../supabase/functions/_shared/meal-policy";
 import { listMealRates } from "../../../src/services/meal-rates";
 import { consultMealQuarkDetails, currentMealEmployees, listMealEmployeeEvents, listMealRows, listMealRuns, syncMealPeriod, type MealRun } from "../../../src/services/benefit-meal";
@@ -97,7 +97,10 @@ export function MealBenefitModule() {
   const companies = useMemo(() => [...new Set(rows.map(row => row.company))].sort(), [rows]);
   const cities = useMemo(() => [...new Set(rows.map(row => row.city))].sort(), [rows]);
   const roleOptions = useMemo(() => [...new Set([...rows.map(roleKey), ...roles])].map(value => ({ value, label: roleLabel(value) })).sort((a, b) => a.label.localeCompare(b.label, "pt-BR")), [rows, roles]);
-  const quarkValues = useMemo(() => rows.map(row => ({ row, ...mealQuarkValues(row) })), [rows]);
+  const quarkValues = useMemo(() => rows.map(row => ({
+    row: tab === "period" ? applyMealApprenticeRule(row, true) : row,
+    ...mealQuarkValues(row),
+  })), [rows, tab]);
   const quarkBenefitOptions = useMemo(() => quarkFilterOptions(quarkValues.flatMap(item => item.benefit), quarkBenefits), [quarkValues, quarkBenefits]);
   const quarkAbsenceOptions = useMemo(() => quarkFilterOptions(quarkValues.flatMap(item => item.absence), quarkAbsences), [quarkValues, quarkAbsences]);
   const filtered = useMemo(() => {
@@ -289,9 +292,9 @@ export function MealBenefitModule() {
             <td data-field="quark-benefit" data-label="Benefício no QuarkRH">{quark.benefit}</td>
             <td data-field="quark-absence" data-label="Tipo de afastamento">{quark.absence}</td>
             <td data-field="events" data-label="Ocorrências"><dl className="meal-row-facts"><div><dt>Faltas</dt><dd data-metric="absence">{countLabel(row.absence_days)}</dd></div><div><dt>Atestados</dt><dd data-metric="medical">{countLabel(row.medical_days)}</dd></div><div><dt>Descontar</dt><dd data-metric="deduction">{row.deduction_days ?? "Pendente"}</dd></div></dl></td>
-            <td data-field="days" data-label="Dias"><dl className="meal-row-facts"><div><dt>Previstos</dt><dd data-metric="planned">{row.planned_work_days ?? "A definir"}</dd></div><div><dt>A pagar</dt><dd data-metric="payable">{row.payable_days ?? "Pendente"}</dd></div></dl></td>
+            <td data-field="days" data-label="Dias"><dl className="meal-row-facts"><div><dt>Previstos</dt><dd data-metric="planned">{mealPlannedDaysLabel(row)}</dd></div><div><dt>A pagar</dt><dd data-metric="payable">{row.payable_days ?? "Pendente"}</dd></div></dl></td>
             <td data-field="daily" data-label="Valor diário"><strong className="meal-money">{daily.value === null ? (tab === "history" && row.calculation_version == null ? "Não registrado" : "A definir") : currency(daily.value)}</strong>{daily.preview && <small className="meal-rate-preview">Regra atual</small>}</td>
-            <td data-field="amount" data-label="Valor a receber"><strong className={row.amount_due === null ? "meal-pending-value" : "meal-calculated-value"}>{row.amount_due === null ? "Pendente" : currency(row.amount_due)}</strong><small>{row.amount_due === null ? pendingReason(row) : "Calculado"}</small></td>
+            <td data-field="amount" data-label="Valor a receber"><strong className={row.amount_due === null ? "meal-pending-value" : "meal-calculated-value"}>{row.amount_due === null ? "Pendente" : currency(row.amount_due)}</strong><small>{row.rate_group === "APRENDIZ" ? "Aprendiz" : row.amount_due === null ? pendingReason(row) : "Calculado"}</small></td>
             <td data-field="details" data-label="Situação" className="meal-row-actions"><StatusBadge status={row.employment_status === "ATIVO" ? "ATIVO" : "DESLIGADO"} /><button className="button secondary" disabled={!run} onClick={() => { setEvents([]); setEventError(""); setDetail(row); }}>Ver detalhes</button>{row.issues.length > 0 && <small>Consulta incompleta</small>}</td>
           </tr>;
         })}
@@ -315,7 +318,7 @@ export function MealBenefitModule() {
           </dd></div>
           <div><dt>Tipo de afastamento</dt><dd>{detailQuark.absence}</dd></div>
           <div><dt>Valor diário</dt><dd>{detailDaily?.value == null ? "Não registrado / a definir" : currency(detailDaily.value)}{detailDaily?.preview && " · Regra atual, ainda não salva nesta consulta"}</dd></div>
-          <div><dt>Dias previstos / a pagar</dt><dd>{detail.planned_work_days ?? "A definir"} / {detail.payable_days ?? "Pendente"}</dd></div>
+          <div><dt>Dias previstos / a pagar</dt><dd>{mealPlannedDaysLabel(detail)} / {detail.payable_days ?? "Pendente"}</dd></div>
         </dl>
         {tab === "period" && mealQuarkDetailsPending(detailQuarkRow) && <div className="meal-person-quark-action">
           <button className="button secondary" disabled={syncing || !!quarkProgress} onClick={() => void consultDetails([detailQuarkRow])}>

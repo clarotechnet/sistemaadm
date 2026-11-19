@@ -126,12 +126,32 @@ export function configuredMealRateRule(city: string, department: string, jobTitl
     : { group: initial.group, dailyCents: null, fixedDays: null, versionId: null };
 }
 export const mealGroupLabels: Record<string, string> = {
-  TECNICO: "Técnica / Instalação / Supervisão técnica", GERAL: "Demais setores", VENDAS: "Consultoria / Supervisão de vendas",
+  APRENDIZ: "Aprendiz", TECNICO: "Técnica / Instalação / Supervisão técnica", GERAL: "Demais setores", VENDAS: "Consultoria / Supervisão de vendas",
   RECIFE_VENDAS: "Recife: consultoria / supervisão de vendas", RECIFE_TECNICO: "Recife: técnica / instalação / supervisão técnica",
   RECIFE_ESTOQUE_RH: "Recife: estoque / RH (base fixa)", REGRA_PENDENTE: "Valor deste grupo a definir",
   RECIFE_PENDENTE: "Recife: regra não definida nesta versão", UNIDADE_PENDENTE: "Identificar unidade", SETOR_PENDENTE: "Identificar setor / cargo",
 };
+export function applyMealApprenticeRule(row: MealRow, preview = false): MealRow {
+  if (!/\bAPRENDIZ(?:ES)?\b/i.test(row.job_title)) return row;
+  return {
+    ...row,
+    rate_group: "APRENDIZ",
+    planned_work_days: null,
+    payable_days: 0,
+    daily_value: 0,
+    amount_due: 0,
+    calculation_status: "READY",
+    calculation_notes: preview && row.rate_group !== "APRENDIZ" ? ["Regra atual aplicada na apuração."] : [],
+    rate_version_id: null,
+  };
+}
+
+export function mealPlannedDaysLabel(row: MealRow) {
+  return row.planned_work_days ?? (row.rate_group === "APRENDIZ" ? "—" : "A definir");
+}
+
 export function mealCalculationNote(row: MealRow) {
+  if (row.rate_group === "APRENDIZ") return ["Cargo de aprendiz com Vale Alimentação zerado.", ...(row.calculation_notes ?? [])].join(" ");
   if (row.calculation_status === "READY") return `Cálculo concluído: base de ${row.planned_work_days} dias menos faltas e atestados do período.`;
   if (row.calculation_version == null) return "Consulta anterior sem cálculo financeiro. Atualize pelo QuarkRH para criar uma nova versão com as regras atuais.";
   return row.calculation_notes?.join(" ") || "Cálculo pendente.";
@@ -186,7 +206,7 @@ export function buildMealRows(employees: MealEmployee[], events: MealEvent[], co
     if (bounds.end < (options.periodEnd ?? bounds.end)) notes.push("Período de ocorrências ainda aberto. O valor final aguarda o fechamento.");
     if (deduction === null) notes.push(overlap ? "Conferir sobreposição de falta e atestado antes de calcular." : "Cálculo aguarda a consulta completa de faltas e atestados.");
     const payable = !notes.length && rate.fixedDays !== null && deduction !== null ? Math.max(0, rate.fixedDays - deduction) : null;
-    return {
+    return applyMealApprenticeRule({
       employee_id: employee.id, employee_name: employee.full_name, cpf: employee.cpf || "", department: employee.department || "",
       job_title: employee.job_title || "", company: employee.external_unit_name || "Unidade não informada", city,
       employment_status: employee.status, rate_group: rate.group,
@@ -196,6 +216,6 @@ export function buildMealRows(employees: MealEmployee[], events: MealEvent[], co
       amount_due: payable === null || rate.dailyCents === null ? null : payable * rate.dailyCents / 100, issues,
       calculation_version: options.rates === undefined ? 1 : 2, calculation_status: payable === null ? "PENDING" : "READY", calculation_notes: notes,
       ...(options.rates === undefined ? {} : { rate_version_id: rate.versionId ?? null }),
-    };
+    });
   }).sort((a, b) => a.employee_name.localeCompare(b.employee_name, "pt-BR") || a.employee_id.localeCompare(b.employee_id));
 }

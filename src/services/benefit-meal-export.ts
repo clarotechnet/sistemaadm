@@ -1,4 +1,4 @@
-import { mealCalculationNote, mealDailyRate, mealGroupLabels, mealQuarkLabels, type MealRow } from "../../supabase/functions/_shared/meal-domain";
+import { mealCalculationNote, mealDailyRate, mealGroupLabels, mealPlannedDaysLabel, mealQuarkLabels, type MealRow } from "../../supabase/functions/_shared/meal-domain";
 import type { MealRun } from "./benefit-meal";
 import type { MealRateVersion } from "../../supabase/functions/_shared/meal-policy";
 import { formatCpf } from "../utils/cpf";
@@ -106,7 +106,7 @@ export async function buildMealReportPdf(report: MealReport): Promise<Blob> {
       { stack: detail },
       formatCpf(person.cpf, maskCpf) || "Não informado", person.department || "-", person.job_title || "-",
       person.absence_days === null ? "Não consultado" : String(person.absence_days), person.medical_days === null ? "Não consultado" : String(person.medical_days),
-      person.deduction_days === null ? "Pendente" : String(person.deduction_days), person.planned_work_days === null ? "A definir" : String(person.planned_work_days),
+      person.deduction_days === null ? "Pendente" : String(person.deduction_days), String(mealPlannedDaysLabel(person)),
       person.payable_days === null ? "Pendente" : String(person.payable_days), daily.value === null ? "A definir" : money(daily.value) + (daily.preview ? "*" : ""),
       { text: person.amount_due === null ? "Pendente" : money(person.amount_due), color: person.amount_due === null ? "#805900" : "#222222" },
     ]);

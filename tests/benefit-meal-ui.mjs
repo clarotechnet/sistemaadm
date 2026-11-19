@@ -18,6 +18,7 @@ const employees = Array.from({ length: 61 }, (_, index) => ({ id: `33333333-3333
 Object.assign(employees[4], { department: "RH/DP", job_title: "Analista de RH" });
 Object.assign(employees[2], { department: "TECNICA AFASTADO" });
 Object.assign(employees[3], { job_title: "SUPERVISOR DE VENDAS AFASTADO" });
+const apprentice = Object.assign(employees[5], { department: "RH/DP", job_title: "APRENDIZ AUX ADM" });
 const runs = [], stored = new Map(), storedEvents = new Map(), errors = [], unexpected = [], calls = [], passed = [];
 let version = 0, missingSchema = false, syncFailure = false, legacyFunction = false, missingRateSchema = false, conflictRates = false;
 let rateRevision=mealRateDefinitions.length;
@@ -88,7 +89,12 @@ await context.route("**/*", async route => {
     events.push({ employee_id: employees[4].id, event_type: "FALTA", source_id: "test-rh-absence", start_date: "2026-11-01", end_date: "2026-11-01", hours: 8 }, { employee_id: employees[4].id, event_type: "ATESTADO", source_id: "test-rh-medical", start_date: "2026-11-02", end_date: "2026-11-03", hours: 8 });
     const coverage = [{ unit_id: "u1", absence_ok: true, medical_ok: true, issues: [], employee_issues: {} }];
     runs.push({ id, period_start: input.start, period_end: input.end, benefit_month: "2026-12-01", queried_through: input.end, status: "SUCCESS", triggered_by_name: "RH Teste", started_at: `2026-11-25T1${version}:00:00Z`, completed_at: `2026-11-25T1${version}:01:00Z`, employee_count: employees.length, coverage, warnings: [], error_message: null });
-    stored.set(id, buildMealRows(employees, events, coverage, period,{rates:selectMealRateVersions(rateVersions,'2026-12'),benefitMonth:'2026-12'}).map(row => ({ ...row, run_id: id, snapshot_employee_id: row.employee_id })));
+    const snapshot = buildMealRows(employees, events, coverage, period,{rates:selectMealRateVersions(rateVersions,'2026-12'),benefitMonth:'2026-12'})
+      .map(row => ({ ...row, run_id: id, snapshot_employee_id: row.employee_id }));
+    if (version === 1) Object.assign(snapshot.find(row => row.employee_id === apprentice.id), {
+      rate_group: "GERAL", daily_value: 20, payable_days: null, amount_due: null, calculation_status: "PENDING",
+    });
+    stored.set(id, snapshot);
     storedEvents.set(id, events.map((event, index) => ({ ...event, id: index, run_id: id, snapshot_employee_id: event.employee_id })));
     body = { ok: true, runId: id, rows: employees.length };
   } else if (table === "user_presence") body = {};
@@ -140,6 +146,15 @@ try {
   assert.equal(await rhRow.locator('[data-metric="payable"]').innerText(), "19");
   assert.match(await rhRow.locator('[data-field="daily"]').innerText(), /23,00/);
   assert.match(await rhRow.locator('[data-field="amount"]').innerText(), /437,00/);
+  const apprenticeRow = table().locator("tbody tr").filter({ hasText: apprentice.full_name });
+  assert.match(await apprenticeRow.locator('[data-field="daily"]').innerText(), /0,00/);
+  assert.match(await apprenticeRow.locator('[data-field="amount"]').innerText(), /0,00\s+Aprendiz/);
+  assert.equal(await apprenticeRow.locator('[data-metric="planned"]').innerText(), "—");
+  assert.equal(await apprenticeRow.locator('[data-metric="payable"]').innerText(), "0");
+  await apprenticeRow.getByRole("button", { name: "Ver detalhes" }).click();
+  await page.getByRole("dialog").getByText(/Vale Alimentação zerado\. Regra atual aplicada/).waitFor();
+  await page.getByRole("button", { name: "Fechar ocorrências" }).click();
+  assert.equal(stored.get(runs[0].id).find(row => row.employee_id === apprentice.id).daily_value, 20);
   await panel().getByText("Valores informados pelo RH", { exact: true }).click();
   assert.match(await panel().locator(".meal-rate-rules").innerText(), /25,00/);
   assert.match(await panel().locator(".meal-rate-rules").innerText(), /28,58/);
@@ -307,6 +322,9 @@ try {
   const xlsxData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
   const exportedRh = xlsxData.find(row => row[0] === "FUNCIONARIO TESTE 004");
   assert.equal(exportedRh[7], 22); assert.equal(exportedRh[8], 19); assert.equal(exportedRh[9], 23); assert.equal(exportedRh[10], 437);
+  const exportedApprentice = xlsxData.find(row => row[0] === apprentice.full_name);
+  assert.deepEqual(exportedApprentice.slice(8, 11), [0, 0, 0]);
+  assert.match(exportedApprentice[16], /Vale Alimentação zerado\. Regra atual aplicada/);
   downloaded = page.waitForEvent("download"); await panel().getByRole("button", { name: "Exportar PDF", exact: true }).click();
   download = await downloaded; await download.saveAs("tmp/meal-qa/report.pdf");
   const pdf = await PDFDocument.load(await readFile("tmp/meal-qa/report.pdf")); assert.ok(pdf.getPageCount() > 1);
@@ -314,11 +332,15 @@ try {
 
   await sync();
   assert.equal(runs.length, 2); assert.equal(stored.get(runs[0].id)[0].absence_days, 1);
+  assert.equal(stored.get(runs[1].id).find(row => row.employee_id === apprentice.id).amount_due, 0);
   await panel().getByRole("tab", { name: "Histórico de consultas" }).click();
   await panel().locator(".meal-history tbody tr").last().getByRole("button", { name: "Consultar versão" }).click();
   await page.waitForFunction(() => !document.querySelector('.meal-history button')?.disabled && document.querySelector('.meal-sync-info')?.textContent.includes('Versão consultada'));
   await choose("Situação do funcionário", []);
   assert.equal(await table().locator("tbody tr").first().locator('[data-metric="absence"]').innerText(), "1");
+  assert.match(await apprenticeRow.locator('[data-field="daily"]').innerText(), /20,00/);
+  assert.match(await apprenticeRow.locator('[data-field="amount"]').innerText(), /Pendente/);
+  passed.push("the current assessment and XLSX show apprentice zeros immediately and the historical view shows the recorded amounts");
   await choose("Benefício no QuarkRH", ["VR 30"]);
   await choose("Tipo de afastamento", ["FÉRIAS"]);
   assert.equal(await table().locator("tbody tr").count(), 1);

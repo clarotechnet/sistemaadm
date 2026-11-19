@@ -33,6 +33,8 @@ Reajustes são informados pelo RH; não há atualização automática por legisl
 
 Estoque/RH de Recife só recebe total final com funcionário ativo, período encerrado e ambas as fontes consultadas, sem sobreposição. Falha na API, período aberto ou desligamento mantém o cálculo pendente, sem transformar desconhecido em zero. Férias, admissões e demais regras de elegibilidade não recebem descontos presumidos. Na tela, a tabela **Valores informados pelo RH** mostra as faixas; a lista e os relatórios exibem dias, diária, valor a receber e motivo da pendência. O total considera somente cálculos concluídos e identifica quantos funcionários permanecem pendentes.
 
+Cargos com a palavra **Aprendiz**, como **Aprendiz Aux Adm**, têm diária de R$ 0,00, zero dias a pagar e R$ 0,00 a receber em qualquer cidade, inclusive com o período aberto. A apuração e seus relatórios aplicam a regra atual ao cargo da versão em exibição. No **Histórico**, a tela e os relatórios mostram os valores registrados na consulta original.
+
 ## Atualização e qualidade das ocorrências
 
 **Atualizar pelo QuarkRH** consulta as faltas do Espelho de Ponto e os atestados de todas as unidades vinculadas ao cadastro existente. A lista inclui todos os funcionários cadastrados, inclusive desligados e manuais. A atualização cadastral permanece em Documentos RH → Funcionários → Sincronizar QuarkRH; a consulta de ocorrências não repete essa sincronização inteira, evitando consumir a cota da API antes de buscar as faltas. Abrir a tela apenas lê os dados; a consulta externa exige o botão.
@@ -87,6 +89,8 @@ npx --yes supabase@2.121.0 functions deploy sync-benefit-meal --project-ref kdbn
 Depois publique a interface pelo fluxo normal do projeto. Recarregue a tela e faça uma nova consulta para salvar as diárias. O GET autenticado da função verifica a versão antes de iniciar uma consulta; uma função antiga não inicia a sincronização e a versão salva é preservada.
 
 A migration das regras editáveis é `supabase/migrations/20261110143715_benefit_meal_editable_rates.sql`. `install-meal-policy.mjs` aplica somente essa atualização, verifica RLS/grants e compara os dados existentes antes/depois; sem `--apply`, apenas verifica o estado. Nenhuma folha ou funcionário é modificado pela instalação.
+
+A migração `supabase/migrations/20261119110433_benefit_meal_apprentices.sql` salva a regra dos aprendizes nas próximas apurações. Ela atualiza a rotina do banco chamada pela versão já publicada de `sync-benefit-meal`. A interface precisa ser publicada para exibir a identificação de aprendiz e os valores zerados na apuração atual.
 
 ## Verificação
 

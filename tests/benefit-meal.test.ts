@@ -105,6 +105,27 @@ test("no final payment is guessed for open periods, unavailable sources, overlap
   assert.match(mealCalculationNote({ ...variants[0], calculation_version: null, calculation_status: null, calculation_notes: [] }), /Consulta anterior sem cálculo/);
 });
 
+test("apprentice jobs get a definite zero even with an open period or a fixed Recife rate", () => {
+  const person = { ...employee, department: "RH/DP", job_title: "Aprendiz Aux Adm", external_unit_name: "DMV - RECIFE" };
+  const [closed] = buildMealRows([person], [event("FALTA", "2026-11-01")], [coverage], bounds);
+  const [open] = buildMealRows([{ ...person, job_title: "JOVEM APRENDIZ" }], [], [],
+    { start: bounds.start, end: "2026-11-09" }, { periodEnd: bounds.end, rates: [], benefitMonth: "2026-12" });
+  for (const row of [closed, open]) {
+    assert.equal(row.rate_group, "APRENDIZ");
+    assert.equal(row.calculation_status, "READY");
+    assert.equal(row.planned_work_days, null);
+    assert.equal(row.payable_days, 0);
+    assert.equal(row.daily_value, 0);
+    assert.equal(row.amount_due, 0);
+    assert.equal(row.rate_version_id, null);
+    assert.match(mealCalculationNote(row), /Vale Alimentação zerado/);
+  }
+  assert.equal(closed.absence_days, 1);
+  assert.equal(open.medical_days, null);
+  const [regular] = buildMealRows([{ ...person, job_title: "Auxiliar de aprendizado" }], [], [coverage], bounds);
+  assert.equal(regular.amount_due, 506);
+});
+
 test("current-rate references never overwrite saved daily values, legacy totals or historical views", () => {
   const [current] = buildMealRows([employee], [], [coverage], bounds);
   const legacy = { ...current, daily_value: null, calculation_version: null, calculation_status: null };

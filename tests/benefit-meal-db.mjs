@@ -173,6 +173,38 @@ try {
     await checkpoint('browser_write_quark_details',()=>sql`update public.benefit_meal_rows set quark_details=null where run_id=${versioned}`,/permission denied/);
     await sql.unsafe('reset role');
     passed.push('Quark details retain RH-only access and can be saved without altering the original snapshot calculation');
+    await sql.unsafe('set local role service_role');
+    const oldApprentice = await beginRun();
+    const apprenticePayload = { ...versionedRow, job_title: 'Aprendiz Aux Adm' };
+    await sql`update public.benefit_meal_runs set rate_version_ids=${frozenRates.map(item=>item.id)}::uuid[] where id=${oldApprentice}`;
+    await completeV2(oldApprentice, apprenticePayload);
+    await sql.unsafe('reset role');
+    const beforeApprentices = await sql`select to_jsonb(r) snapshot from public.benefit_meal_rows r order by run_id`;
+    await sql.unsafe(await readFile('supabase/migrations/20261119110433_benefit_meal_apprentices.sql', 'utf8'));
+    assert.deepEqual(await sql`select to_jsonb(r) snapshot from public.benefit_meal_rows r order by run_id`, beforeApprentices);
+
+    await sql.unsafe('set local role service_role');
+    const openApprentice = await beginRun();
+    await sql`update public.benefit_meal_runs set queried_through='2026-11-09',rate_version_ids=${frozenRates.map(item=>item.id)}::uuid[] where id=${openApprentice}`;
+    await checkpoint('regular_open_period', () => completeV2(openApprentice), /Período aberto/);
+    const forged = { ...versionedRow, rate_group: 'APRENDIZ', daily_value: 0, amount_due: 0, payable_days: 0, planned_work_days: null, rate_version_id: null };
+    await checkpoint('wrong_apprentice_job', () => completeV2(openApprentice, forged), /check constraint/);
+    await completeV2(openApprentice, {
+      ...apprenticePayload,
+      medical_days: null, overlap_days: null, deduction_days: null, issues: ['Atestados indisponíveis'],
+      payable_days: null, amount_due: null, calculation_status: 'PENDING', calculation_notes: ['Período aberto'],
+    });
+    assert.deepEqual((await sql`select rate_group,daily_value::float8,planned_work_days::int,payable_days::int,amount_due::float8,calculation_status,rate_version_id,absence_days,medical_days from public.benefit_meal_rows where run_id=${openApprentice}`)[0], {
+      rate_group: 'APRENDIZ', daily_value: 0, planned_work_days: null, payable_days: 0, amount_due: 0,
+      calculation_status: 'READY', rate_version_id: null, absence_days: 1, medical_days: null,
+    });
+    assert.equal((await sql`select status from public.benefit_meal_runs where id=${openApprentice}`)[0].status, 'PARTIAL');
+    assert.equal(Number((await sql`select amount_due from public.benefit_meal_rows where run_id=${oldApprentice}`)[0].amount_due), 575);
+    await checkpoint('invalid_apprentice_amount', () => sql`update public.benefit_meal_rows set amount_due=5 where run_id=${openApprentice}`, /check constraint/);
+    await sql.unsafe('reset role; set local role authenticated');
+    await checkpoint('browser_apprentice_rpc', () => completeV2(openApprentice, apprenticePayload), /permission denied/);
+    await sql.unsafe('reset role');
+    passed.push('official apprentice job titles save zero on open periods with the existing Edge payload; historic values and RH-only access are preserved');
     await sql`delete from public.employees where id=${employee}`;
     const [historical] = await sql`select employee_name,employee_id,snapshot_employee_id from public.benefit_meal_rows where run_id=${first}`;
     assert.equal(historical.employee_name, "Nome no snapshot"); assert.equal(historical.employee_id, null); assert.equal(historical.snapshot_employee_id, employee);
