@@ -1,18 +1,25 @@
-import { PDFDocument, degrees, type PDFPage } from "pdf-lib";
+import { AnnotationFlags, PDFDict, PDFDocument, PDFName, PDFSignature, PDFWidgetAnnotation, degrees, type PDFPage } from "pdf-lib";
 
 export type PdfInput = Pick<File,"name"|"size"|"arrayBuffer">;
 export type PageInstruction = {sourceIndex:number;rotation:number};
+type PdfMergeOptions = {
+  includeSignedOriginals?: boolean;
+  addRenderedPages?: (bytes: Uint8Array, output: PDFDocument) => Promise<void>;
+};
 export function validateLocalFile(file:PdfInput,extensions:readonly string[],maxMb=150) {
   if(!file?.size)throw new Error("Selecione um arquivo válido e não vazio.");
   if(!extensions.some(extension=>file.name.toLowerCase().endsWith(extension)))throw new Error(`Formato não suportado. Use ${extensions.join(", ")}.`);
   if(file.size>maxMb*1024*1024)throw new Error(`O arquivo excede o limite de ${maxMb} MB para processamento local.`);
 }
-export async function loadEditablePdf(file:PdfInput) {
+async function readEditablePdf(file: PdfInput) {
   validateLocalFile(file,[".pdf"]);
   const bytes=new Uint8Array(await file.arrayBuffer());
   if(!new TextDecoder("latin1").decode(bytes.subarray(0,1024)).includes("%PDF-"))throw new Error("O conteúdo do arquivo não é um PDF válido.");
-  try {return await PDFDocument.load(bytes,{updateMetadata:false});}
+  try {return { bytes, pdf: await PDFDocument.load(bytes,{updateMetadata:false}) };}
   catch(error){if(error instanceof Error&&/encrypt/i.test(error.message))throw new Error("PDF protegido por senha não é suportado nesta ferramenta. Use uma cópia desbloqueada.");throw new Error("Não foi possível ler o PDF. Verifique se o arquivo está íntegro.");}
+}
+export async function loadEditablePdf(file:PdfInput) {
+  return (await readEditablePdf(file)).pdf;
 }
 export function parsePageRanges(value:string,pageCount:number):number[] {
   if(!Number.isInteger(pageCount)||pageCount<1)throw new Error("O PDF não possui páginas válidas.");
@@ -27,10 +34,54 @@ export function parsePageRanges(value:string,pageCount:number):number[] {
   if(!selected.size)throw new Error("Informe pelo menos uma página válida no intervalo.");
   return [...selected].sort((a,b)=>a-b);
 }
-export async function mergePdfBytes(files:PdfInput[]) {
+function removeInvisibleWidgets(pdf: PDFDocument) {
+  for (const page of pdf.getPages()) {
+    const annotations = page.node.Annots();
+    if (!annotations) continue;
+    for (let index = annotations.size() - 1; index >= 0; index -= 1) {
+      const annotation = annotations.lookup(index);
+      if (!(annotation instanceof PDFDict) || annotation.lookup(PDFName.of("Subtype")) !== PDFName.of("Widget")) continue;
+      const widget = PDFWidgetAnnotation.fromDict(annotation);
+      const { width, height } = widget.getRectangle();
+      if (width !== 0 && height !== 0 && !widget.hasFlag(AnnotationFlags.Hidden) && !widget.hasFlag(AnnotationFlags.NoView)) return false;
+      annotations.remove(index);
+    }
+  }
+  return true;
+}
+
+export async function mergePdfBytes(files: PdfInput[], options: PdfMergeOptions = {}) {
   if(files.length<2)throw new Error("Selecione pelo menos dois PDFs para juntar.");
   const output=await PDFDocument.create();
-  for(const file of files){const source=await loadEditablePdf(file);requireCopyablePages(source);const pages=await output.copyPages(source,source.getPageIndices());pages.forEach(page=>output.addPage(page));}
+  const attachmentNames = new Set<string>();
+  const attachments: { name: string; bytes: Uint8Array }[] = [];
+  for (const file of files) {
+    const { bytes, pdf } = await readEditablePdf(file);
+    const fields = pdf.getForm().getFields();
+    const hasSignature = fields.some(field => field instanceof PDFSignature);
+    if (hasSignature) {
+      if (!options.includeSignedOriginals) throw new Error("Para juntar PDFs com campos de assinatura, marque Incluir PDFs assinados.");
+      attachments.push({ name: uniqueArchiveName(file.name, attachmentNames), bytes });
+
+      // Os espelhos com assinatura invisível mantêm as páginas e o texto vetorial.
+      if (!fields.every(field => field instanceof PDFSignature) || !removeInvisibleWidgets(pdf)) {
+        if (!options.addRenderedPages) throw new Error("A cópia deste PDF exige renderizar os campos visíveis.");
+        await options.addRenderedPages(bytes.slice(), output);
+        continue;
+      }
+    } else {
+      requireCopyablePages(pdf);
+    }
+    const pages = await output.copyPages(pdf, pdf.getPageIndices());
+    for (const page of pages) output.addPage(page);
+  }
+  if (attachments.length) {
+    output.setTitle("PDF unificado para conferência");
+    output.setSubject("Os PDFs originais para validação das assinaturas estão no painel Anexos.");
+    // As chaves da árvore de nomes devem estar ordenadas para os leitores de anexos.
+    attachments.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    for (const { name, bytes } of attachments) await output.attach(bytes, name, { mimeType: "application/pdf" });
+  }
   return output.save();
 }
 export async function splitPdfParts(file:PdfInput,range:string|null,individual:boolean) {

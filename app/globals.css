@@ -893,3 +893,9 @@ button.movement-kpi:hover,button.movement-kpi.selected{border-color:var(--primar
 .recovery-feedback{display:grid;gap:14px;margin:20px 0}.recovery-feedback>svg{width:34px;height:34px;color:#268454}.recovery-feedback h2{font-size:18px;margin:0}.recovery-feedback p{font-size:12px;line-height:1.6;margin:0;color:#555}
 .recovery-notice{display:flex;align-items:flex-start;gap:9px;padding:12px;border:1px solid #b7d8c5;border-radius:8px;background:#f0faf4;color:#205c39;margin:16px 0}.recovery-notice svg{width:20px;height:20px;flex-shrink:0}.recovery-notice p{font-size:12px;line-height:1.6;margin:0}
 @media(max-width:600px){.password-recovery-page{padding:20px 16px}.password-recovery-card{padding:24px;width:100%;margin:24px auto}.password-recovery-page .back-link{font-size:12px}}
+
+.pdf-merge-signed{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border);border-radius:8px;cursor:pointer}
+.pdf-merge-signed input{flex-shrink:0;margin:2px 0 0;accent-color:var(--primary)}
+.pdf-merge-signed strong,.pdf-merge-signed small{display:block}
+.pdf-merge-signed strong{font-size:12px}
+.pdf-merge-signed small{color:var(--muted);font-size:11px;line-height:1.4;margin-top:4px}

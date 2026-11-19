@@ -27,7 +27,8 @@ Resultado da rodada: 95 testes unitários/integração aprovados, build estátic
 - Não há LibreOffice/Word nativo disponível no ambiente de QA. A tentativa de renderizar o DOCX pelo renderizador empacotado foi impedida pela ausência de `soffice.exe`. A estrutura do DOCX, o texto e as imagens foram inspecionados, mas não se afirma fidelidade visual em um motor Word nativo.
 - Compactação transforma as páginas em imagens e pode eliminar texto selecionável e campos editáveis. A interface avisa antes do uso. Não é uma ferramenta de preservação ou validação de assinatura digital.
 - Editar/apagar ou substituir texto original reconstrói as páginas afetadas como imagens, removendo o texto original dessas páginas. Texto inserido sem apagar mantém o PDF vetorial. Isso não é um serviço de higienização completa de metadados ou de validação de assinatura.
-- Juntar, separar e reorganizar rejeitam campos interativos ou de assinatura em vez de descartar silenciosamente sua estrutura. Use uma cópia estática adequada, sem substituir o original.
+- Em **Juntar PDFs**, a opção **Incluir PDFs assinados** reúne as páginas para conferência e guarda os originais dentro do arquivo final, no painel **Anexos**. Espelhos com campos de assinatura invisíveis mantêm o texto pesquisável. Documentos assinados com campos visíveis são renderizados como cópias estáticas para conferência.
+- Separar e reorganizar rejeitam campos interativos ou de assinatura. Formulários interativos sem campo de assinatura também são bloqueados na junção.
 - PDFs protegidos por senha não são desbloqueados. Arquivos vazios, corrompidos ou excessivos são rejeitados com aviso.
 
 ## Privacidade e dependências

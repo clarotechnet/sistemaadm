@@ -4,7 +4,7 @@ import {readFile,mkdir} from "node:fs/promises";
 import {resolve,join} from "node:path";
 import {pathToFileURL} from "node:url";
 import JSZip from "jszip";
-import {PDFDocument} from "pdf-lib";
+import {PDFDict,PDFDocument,PDFName} from "pdf-lib";
 const {chromium}=process.env.PLAYWRIGHT_PATH?await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href):await import("playwright");
 const url=process.env.PDF_TOOLS_TEST_URL??"http://127.0.0.1:5174",fixtures=resolve("tmp/pdf-tools-qa"),outputs=join(fixtures,"outputs");
 await mkdir(outputs,{recursive:true});
@@ -42,6 +42,31 @@ try{
   await open("Juntar PDFs");await page.locator("input[type=file]").setInputFiles([file("original.pdf"),file("rotacionado.pdf")]);
   await page.getByRole("button",{name:"Mover para cima",exact:true}).last().click();
   const merged=await download(page.getByRole("button",{name:"Juntar e baixar",exact:true}));assert.equal(await count(merged),4);assert.equal((await PDFDocument.load(await readFile(merged))).getPage(0).getRotation().angle,90);completed.push("merge order");await home();
+
+  const signedFixture = await PDFDocument.create();
+  const visibleField = signedFixture.getForm().createTextField("assinatura_teste");
+  visibleField.setText("Campo visível de teste");
+  visibleField.addToPage(signedFixture.addPage(), { x: 50, y: 600, width: 170, height: 40 });
+  visibleField.acroField.dict.set(PDFName.of("FT"), PDFName.of("Sig"));
+  visibleField.acroField.dict.delete(PDFName.of("V"));
+  const signedBytes = await signedFixture.save();
+  await open("Juntar PDFs");
+  await page.locator("input[type=file]").setInputFiles([
+    { name: "assinatura.pdf", mimeType: "application/pdf", buffer: Buffer.from(signedBytes) },
+    { name: "original.pdf", mimeType: "application/pdf", buffer: await readFile(file("original.pdf")) },
+  ]);
+  await page.getByRole("button", { name: "Juntar e baixar", exact: true }).click();
+  await page.getByText(/marque Incluir PDFs assinados/).waitFor();
+  await page.getByRole("checkbox", { name: "Incluir PDFs assinados", exact: true }).check();
+  const signedOutput = await download(page.getByRole("button", { name: "Juntar e baixar", exact: true }));
+  const signedMerged = await PDFDocument.load(await readFile(signedOutput));
+  assert.equal(signedMerged.getPageCount(), signedFixture.getPageCount() + await count(file("original.pdf")));
+  assert.equal(signedMerged.getForm().getFields().length, 0);
+  assert.ok(signedMerged.getPage(0).node.Resources().lookup(PDFName.of("XObject"), PDFDict).keys().length > 0);
+  assert.ok(signedMerged.catalog.lookup(PDFName.of("Names"), PDFDict).has(PDFName.of("EmbeddedFiles")));
+  assert.match((await text(signedOutput)).pages[1], /ANA TESTE SILVA/);
+  completed.push("signed merge retains original files as attachments and renders visible fields for review");
+  await home();
 
   await open("Separar PDF");await page.locator("input[type=file]").setInputFiles(file("original.pdf"));await page.getByPlaceholder("Ex.: 1-3, 5, 7-10").fill("1-2-3");await page.getByRole("button",{name:"Separar e baixar",exact:true}).click();await page.getByText(/Intervalo inválido: 1-2-3/).waitFor();
   await page.getByPlaceholder("Ex.: 1-3, 5, 7-10").fill("2-3");await page.locator("select").selectOption("single");const split=await download(page.getByRole("button",{name:"Separar e baixar",exact:true}));assert.equal(await count(split),2);assert.match((await text(split)).pages[0],/SEGUNDA PAGINA/);

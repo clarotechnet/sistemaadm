@@ -6,8 +6,10 @@ export {parsePageRanges} from "./pdf-core";
 export type {PageInstruction} from "./pdf-core";
 import type {PDFPageProxy} from "pdfjs-dist";
 
-export async function mergePdfs(files:File[],fileName="PDF_UNIFICADO.pdf") {
-  const bytes=await mergePdfBytes(files);downloadFile(bytes,fileName,"application/pdf");return bytes;
+export async function mergePdfs(files: File[], fileName = "PDF_UNIFICADO.pdf", includeSignedOriginals = false) {
+  const bytes = await mergePdfBytes(files, { includeSignedOriginals, addRenderedPages: addSignedPdfPages });
+  downloadFile(bytes, fileName, "application/pdf");
+  return bytes;
 }
 export async function splitPdf(file:File,range:string|null,individual:boolean) {
   const parts=await splitPdfParts(file,range,individual),base=file.name.replace(/\.pdf$/i,"");
@@ -56,6 +58,30 @@ export async function loadPdfJs() {
   // server builds emit a file:/// URL, which browsers cannot fetch in Sites.
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
   return pdfjs;
+}
+
+async function addSignedPdfPages(bytes: Uint8Array, output: PDFDocument) {
+  const pdfjs = await loadPdfJs();
+  const task = pdfjs.getDocument(pdfDocumentOptions(bytes));
+  try {
+    const source = await task.promise;
+    for (let pageNumber = 1; pageNumber <= source.numPages; pageNumber += 1) {
+      const page = await source.getPage(pageNumber);
+      const { width, height } = page.getViewport({ scale: 1 });
+      const canvas = await renderPdfPageCanvas(page, 2);
+      try {
+        const jpeg = await canvasToJpegBlob(canvas, 0.87, false);
+        const image = await output.embedJpg(await jpeg.arrayBuffer());
+        output.addPage([width, height]).drawImage(image, { x: 0, y: 0, width, height });
+      } finally {
+        canvas.width = 1;
+        canvas.height = 1;
+        page.cleanup();
+      }
+    }
+  } finally {
+    await task.destroy();
+  }
 }
 
 export const pdfCompressionPresets = {

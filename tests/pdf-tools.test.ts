@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {PDFDocument,StandardFonts,degrees} from "pdf-lib";
+import {PDFArray,PDFDict,PDFDocument,PDFHexString,PDFName,PDFRawStream,PDFString,StandardFonts,decodePDFRawStream,degrees} from "pdf-lib";
 import {mergePdfBytes,organizePdfBytes,parsePageRanges,pdfPageDisplayGeometry,splitPdfParts,uniqueArchiveName} from "../src/services/pdf-core";
 import {applyPdfEdits,addOvertimeBox} from "../src/services/pdf";
 import {validateDocxArchive} from "../src/services/word-conversion";
@@ -48,8 +48,34 @@ test("PDF page-copy tools reject interactive forms instead of silently discardin
   const pdf=await PDFDocument.create(),page=pdf.addPage();pdf.getForm().createTextField("nome").addToPage(page);
   const file=new File([await pdf.save() as BlobPart],"formulario.pdf");
   await assert.rejects(mergePdfBytes([file,await fixture()]),/campos interativos/);
+  await assert.rejects(mergePdfBytes([file,await fixture()],{includeSignedOriginals:true}),/campos interativos/);
   await assert.rejects(splitPdfParts(file,null,false),/campos interativos/);
   await assert.rejects(organizePdfBytes(file,[{sourceIndex:0,rotation:0}]),/campos interativos/);
+});
+test("signed merge copies invisible-signature pages and embeds the exact originals with unique names", async () => {
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage();
+  page.setRotation(degrees(90));
+  const widget = pdf.context.register(pdf.context.obj({
+    Type: "Annot", Subtype: "Widget", FT: "Sig", T: PDFString.of("Assinatura teste"), Rect: [0, 0, 0, 0], P: page.ref,
+  }));
+  pdf.getForm().acroForm.addField(widget);
+  page.node.addAnnot(widget);
+  const original = await pdf.save();
+  const file = new File([original as BlobPart], "assinatura.pdf", { type: "application/pdf" });
+  await assert.rejects(mergePdfBytes([file, file]), /Incluir PDFs assinados/);
+  const merged = await PDFDocument.load(await mergePdfBytes([file, file], { includeSignedOriginals: true }));
+  assert.deepEqual(merged.getPages().map(item => item.getRotation().angle), [90, 90]);
+  assert.equal(merged.getForm().getFields().length, 0);
+  assert.ok(merged.getPages().every(item => !item.node.Annots()?.size()));
+  const names = merged.catalog.lookup(PDFName.of("Names"), PDFDict)
+    .lookup(PDFName.of("EmbeddedFiles"), PDFDict).lookup(PDFName.of("Names"), PDFArray);
+  assert.equal(names.size(), 4);
+  assert.deepEqual([0, 2].map(index => names.lookup(index, PDFHexString).decodeText()), ["assinatura (2).pdf", "assinatura.pdf"]);
+  for (const index of [1, 3]) {
+    const data = names.lookup(index, PDFDict).lookup(PDFName.of("EF"), PDFDict).lookup(PDFName.of("F"), PDFRawStream);
+    assert.deepEqual(decodePDFRawStream(data).decode(), original);
+  }
 });
 test("overtime durations retain hours above 24 and reject ambiguous employee names",()=>{
   assert.equal(formatOvertimeHours(1.5),"36:00");assert.equal(formatOvertimeHours("27:45"),"27:45");assert.equal(formatOvertimeHours(new Date(Date.UTC(1899,11,31,12))),"36:00");

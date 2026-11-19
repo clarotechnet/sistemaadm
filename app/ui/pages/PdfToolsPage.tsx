@@ -19,7 +19,55 @@ export function PdfToolsPage(){const[tool,setTool]=useState<Tool>("home");return
 
 function ToolHeader({title,description}:{title:string;description:string}){return <><div className="page-heading compact"><div><h2>{title}</h2><p>{description}</p></div></div><p className="conversion-notice">Regravar, juntar, separar ou editar um PDF pode invalidar assinaturas digitais. Guarde o original assinado para comprovação.</p></>}
 
-function MergeTool(){const{toast,addAudit}=useApp();const[files,setFiles]=useState<File[]>([]);const[busy,setBusy]=useState(false);const move=(index:number,direction:number)=>{const next=[...files];const target=index+direction;if(target<0||target>=files.length)return;[next[index],next[target]]=[next[target],next[index]];setFiles(next)};const run=async()=>{setBusy(true);try{await mergePdfs(files);addAudit({operation:"Juntou PDFs",module:"PDF",result:`${files.length} arquivos mesclados`,status:"SUCESSO",processedCount:files.length});toast("success","PDF unificado gerado","O arquivo PDF_UNIFICADO.pdf foi baixado.");}catch(error){toast("error","Não foi possível juntar os PDFs",error instanceof Error?error.message:undefined)}finally{setBusy(false)}};return <><ToolHeader title="Juntar PDFs" description="A ordem abaixo será preservada no PDF unificado."/><section className="surface import-surface"><div className="import-form"><FileDropzone accept=".pdf" multiple disabled={busy} files={[]} onFiles={incoming=>setFiles(current=>[...current,...incoming])}/>{files.length>0&&<div className="sortable-files">{files.map((file,index)=><div key={`${file.name}-${index}`}><span>{index+1}</span><FileStack/><strong>{file.name}</strong><button disabled={busy||index===0} onClick={()=>move(index,-1)} title="Mover para cima"><ArrowUp/></button><button disabled={busy||index===files.length-1} onClick={()=>move(index,1)} title="Mover para baixo"><ArrowDown/></button><button disabled={busy} onClick={()=>setFiles(files.filter((_,i)=>i!==index))} title="Remover"><Trash2/></button></div>)}</div>}<div className="form-actions"><button className="button primary" disabled={files.length<2||busy} onClick={run}><Combine size={16}/>{busy?"Juntando...":"Juntar e baixar"}</button></div></div></section></>}
+function MergeTool() {
+  const { toast, addAudit } = useApp();
+  const [files, setFiles] = useState<File[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [includeSignedOriginals, setIncludeSignedOriginals] = useState(false);
+  function move(index: number, direction: number) {
+    const next = [...files];
+    const target = index + direction;
+    if (target < 0 || target >= files.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setFiles(next);
+  }
+  async function run() {
+    setBusy(true);
+    try {
+      await mergePdfs(files, undefined, includeSignedOriginals);
+      addAudit({ operation: "Juntou PDFs", module: "PDF", result: `${files.length} arquivos mesclados`, status: "SUCESSO", processedCount: files.length });
+      toast("success", "PDF unificado gerado", "O arquivo PDF_UNIFICADO.pdf foi baixado.");
+    } catch (error) {
+      toast("error", "Não foi possível juntar os PDFs", error instanceof Error ? error.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <>
+    <ToolHeader title="Juntar PDFs" description="A ordem abaixo será preservada no PDF unificado." />
+    <section className="surface import-surface">
+      <div className="import-form">
+        <FileDropzone accept=".pdf" multiple disabled={busy} files={[]} onFiles={incoming => setFiles(current => [...current, ...incoming])} />
+        {files.length > 0 && <div className="sortable-files">{files.map((file, index) => <div key={`${file.name}-${index}`}>
+          <span>{index + 1}</span><FileStack /><strong>{file.name}</strong>
+          <button disabled={busy || index === 0} onClick={() => move(index, -1)} title="Mover para cima"><ArrowUp /></button>
+          <button disabled={busy || index === files.length - 1} onClick={() => move(index, 1)} title="Mover para baixo"><ArrowDown /></button>
+          <button disabled={busy} onClick={() => setFiles(files.filter((_, i) => i !== index))} title="Remover"><Trash2 /></button>
+        </div>)}</div>}
+        {files.length > 0 && <label className="pdf-merge-signed">
+          <input type="checkbox" checked={includeSignedOriginals} disabled={busy} aria-labelledby="pdf-merge-signed-label" aria-describedby="pdf-merge-signed-help" onChange={event => setIncludeSignedOriginals(event.target.checked)} />
+          <span>
+            <strong id="pdf-merge-signed-label">Incluir PDFs assinados</strong>
+            <small id="pdf-merge-signed-help">Reúne as páginas para conferência. Os PDFs originais ficam no painel Anexos para validar as assinaturas.</small>
+          </span>
+        </label>}
+        <div className="form-actions">
+          <button className="button primary" disabled={files.length < 2 || busy} onClick={run}><Combine size={16} />{busy ? "Juntando..." : "Juntar e baixar"}</button>
+        </div>
+      </div>
+    </section>
+  </>;
+}
 
 function SplitTool(){const{toast,addAudit}=useApp();const[files,setFiles]=useState<File[]>([]);const[range,setRange]=useState("");const[individual,setIndividual]=useState(true);const[busy,setBusy]=useState(false);const run=async()=>{setBusy(true);try{await splitPdf(files[0],range.trim()||null,individual);addAudit({operation:"Separou PDF",module:"PDF",result:range||"Todas as páginas",status:"SUCESSO",fileName:files[0].name});toast("success","PDF separado com sucesso");}catch(error){toast("error","Não foi possível separar o PDF",error instanceof Error?error.message:undefined)}finally{setBusy(false)}};return <><ToolHeader title="Separar PDF" description="Informe páginas como 1-3, 5, 7-10 ou deixe em branco para todas."/><section className="surface import-surface"><div className="import-form"><FileDropzone accept=".pdf" disabled={busy} files={files} onFiles={setFiles}/><div className="two-fields"><label className="field grow"><span>Intervalo de páginas</span><input placeholder="Ex.: 1-3, 5, 7-10" value={range} disabled={busy} onChange={event=>setRange(event.target.value)}/></label><label className="field grow"><span>Formato da saída</span><select value={individual?"individual":"single"} disabled={busy} onChange={event=>setIndividual(event.target.value==="individual")}><option value="individual">Um PDF por página (ZIP)</option><option value="single">Um PDF com o intervalo</option></select></label></div><button className="button primary align-start" disabled={!files.length||busy} onClick={run}><Scissors/>{busy?"Processando...":"Separar e baixar"}</button></div></section></>}
 
